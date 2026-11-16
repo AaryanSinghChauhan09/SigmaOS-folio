@@ -6010,6 +6010,60 @@ private slots:
         }
     }
 
+    void folderViewsKeepNoCacheBuffer_data()
+    {
+        QTest::addColumn<QString>("pane");
+        QTest::newRow("grid") << QString("FolderGrid");
+        QTest::newRow("list") << QString("FolderList");
+        QTest::newRow("columns") << QString("FolderColumns");
+    }
+
+    void folderViewsKeepNoCacheBuffer()
+    {
+        // An idle window draws no frames offscreen, so this checks the cause
+        // instead: Qt's pause before filling a cache buffer can leave it drawing.
+        QFETCH(QString, pane);
+        QTemporaryDir home;
+        QVERIFY(QDir(home.path()).mkpath("a/b"));
+        Backend backend(home.path());
+        backend.navigate(home.filePath("a"));
+        QTRY_COMPARE(backend.folder()->rowCount(), 1);
+        Theme theme(home.filePath("theme"));
+        FileOps fileOps;
+        Translator translator(home.filePath("language"), home.path());
+        Thumbnails thumbnails(home.filePath("cache"), {home.filePath("none")});
+        qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("plugins", QVariantMap{{"views", QVariantMap{}}});
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        QQmlComponent component(&engine);
+        component.setData(QString(R"(
+            import QtQuick
+            Window {
+                width: 800; height: 300; visible: true
+                %1 { id: pane; anchors.fill: parent }
+                function buffersIn(item) {
+                    const own = item instanceof ListView || item instanceof GridView ? [item.cacheBuffer] : []
+                    return own.concat(...Array.from(item.children, child => buffersIn(child)))
+                }
+                function buffers() { return buffersIn(pane) }
+            }
+        )").arg(pane).toUtf8(), QUrl::fromLocalFile(sourceFolder() + "/CacheBufferTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        const auto buffers = [&] {
+            QVariant found;
+            QMetaObject::invokeMethod(root.get(), "buffers", Q_RETURN_ARG(QVariant, found));
+            return found.toList();
+        };
+        QTRY_COMPARE(buffers().size(), pane == "FolderColumns" ? 3 : 1);
+        QCOMPARE(buffers(), QVariantList(buffers().size(), 0));
+    }
+
     void themeFallsBack()
     {
         QTemporaryDir dir;
