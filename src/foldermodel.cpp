@@ -2,6 +2,7 @@
 
 #include <QCache>
 #include <QCollator>
+#include <QCoreApplication>
 #include <QDir>
 #include <QDirIterator>
 #include <QXmlStreamReader>
@@ -38,6 +39,19 @@ FolderModel::FolderModel(QObject *parent) : QAbstractListModel(parent) {
 // running for this model.
 FolderModel::~FolderModel() {
     *m_latest = 0;
+}
+
+// Never deleted, like Places', so a dead mount can't stop Folio quitting: a listing
+// gets a second to finish, and one stuck longer may still meet destroyed statics.
+QThreadPool &FolderModel::listingPool() {
+    static QThreadPool *const pool = [] {
+        qAddPostRoutine([] { listingPool().waitForDone(1000); });
+        auto *p = new QThreadPool;
+        // Eight, not the CPU count, so a few folders stuck on dead mounts leave others listing.
+        p->setMaxThreadCount(8);
+        return p;
+    }();
+    return *pool;
 }
 
 // Recent listings, shared by every model (the window's folder and each
@@ -536,7 +550,7 @@ void FolderModel::reload() {
             remember();
         countFolders(generation);
     });
-    watcher->setFuture(QtConcurrent::run([path, showHidden, sort, query, items, filter, latest, generation, locale] {
+    watcher->setFuture(QtConcurrent::run(&FolderModel::listingPool(), [path, showHidden, sort, query, items, filter, latest, generation, locale] {
         QString error;
         const auto overtaken = [&] { return *latest != generation; };
         auto entries = isPluginView(path) ? listItems(items, query)

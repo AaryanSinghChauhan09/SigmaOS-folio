@@ -6,6 +6,7 @@
 #include <QFileSystemWatcher>
 #include <QLocale>
 #include <QStringList>
+#include <QThreadPool>
 #include <QTimer>
 #include <QVariantList>
 #include <QSet>
@@ -111,6 +112,10 @@ public:
     Q_INVOKABLE void clearSelection();
     Q_INVOKABLE bool isSelected(int row) const;
     Q_INVOKABLE QStringList selectedPaths() const;
+
+    // Listings run here, not on the global pool, so folder counts and file
+    // transfers can't hold up the folder just opened.
+    static QThreadPool &listingPool();
 
     // Synchronous building blocks, used by the background passes and tests.
     // A listing stops, empty, as soon as `stop` returns true. Names sort

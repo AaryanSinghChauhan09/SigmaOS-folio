@@ -952,11 +952,8 @@ private slots:
 
     void folderModelStopsReadingWhatsBeenOvertaken()
     {
-        // A big folder left before it's been read, or a search of it, stops
-        // being read instead of holding on to a thread of the pool that the
-        // next listing, the folder counts and file transfers all wait for.
-        // With a pool of one thread, the next folder waits for the overtaken
-        // read to stop, so it shows in a fraction of the time the read takes.
+        // With one listing thread, the next folder shows in a fraction of the
+        // time a big read takes only if the overtaken read stops.
         QTemporaryDir big, small, other;
         for (int i = 0; i < 20000; ++i)
             write(big.filePath(QString("%1.txt").arg(i)), "x");
@@ -969,7 +966,7 @@ private slots:
         FolderModel::search(big.path(), "none", false, "name");
         const qint64 searching = timer.elapsed();
 
-        QThreadPool *pool = QThreadPool::globalInstance();
+        QThreadPool *pool = &FolderModel::listingPool();
         pool->waitForDone();
         const int threads = pool->maxThreadCount();
         pool->setMaxThreadCount(1);
@@ -3629,6 +3626,35 @@ private slots:
         QVERIFY(QMetaObject::invokeMethod(&backend, "showItem", Q_ARG(QString, home.filePath("report.pdf"))));
         QCOMPARE(backend.path(), home.path());
         QCOMPARE(backend.takeSelection(), QString("report.pdf"));
+    }
+
+    void folderModelListsWhileOtherWorkIsStuck()
+    {
+        // Every thread of the global pool busy, and seven listings hung on dead mounts.
+        QTemporaryDir dir;
+        write(dir.filePath("a.txt"), "x");
+        QThreadPool *pool = QThreadPool::globalInstance();
+        pool->waitForDone();
+        FolderModel::listingPool().waitForDone();
+        std::atomic<bool> hold = true;
+        const auto stuck = [&] {
+            while (hold)
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        };
+        for (int i = 0; i < pool->maxThreadCount(); ++i)
+            pool->start(stuck);
+        for (int i = 0; i < 7; ++i)
+            FolderModel::listingPool().start(stuck);
+        const auto release = qScopeGuard([&] {
+            hold = false;
+            pool->waitForDone();
+            FolderModel::listingPool().waitForDone();
+        });
+        FolderModel model;
+        QSignalSpy loaded(&model, &FolderModel::loaded);
+        model.setPath(dir.path());
+        QVERIFY(loaded.wait(3000));
+        QCOMPARE(model.count(), 1);
     }
 
     void backendReadsDetailsOffTheUiThread()
