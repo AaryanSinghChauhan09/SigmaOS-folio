@@ -3549,7 +3549,8 @@ private slots:
         QTemporaryDir home;
         write(home.filePath("report.pdf"), "x");
         Backend backend(home.path());
-        backend.showItem(home.filePath("report.pdf"));
+        // As QML calls it, through the meta-object system.
+        QVERIFY(QMetaObject::invokeMethod(&backend, "showItem", Q_ARG(QString, home.filePath("report.pdf"))));
         QCOMPARE(backend.path(), home.path());
         QCOMPARE(backend.takeSelection(), QString("report.pdf"));
     }
