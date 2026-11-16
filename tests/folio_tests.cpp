@@ -5787,6 +5787,68 @@ private slots:
         QVERIFY(!FolderModel::toMap(FolderModel::Entry()).contains("peek"));
     }
 
+    void folderKeyboardScrolls_data()
+    {
+        QTest::addColumn<QString>("viewType");
+        QTest::newRow("grid") << QString("FolderGrid");
+        QTest::newRow("list") << QString("FolderList");
+        QTest::newRow("columns") << QString("FolderColumns");
+    }
+
+    void folderKeyboardScrolls()
+    {
+        QFETCH(QString, viewType);
+        QTemporaryDir home;
+        QVERIFY(QDir(home.path()).mkdir("files"));
+        for (int i = 0; i < 80; ++i)
+            write(home.filePath(QString("files/file-%1.txt").arg(i, 2, 10, QLatin1Char('0'))), "x");
+        Backend backend(home.path());
+        backend.navigate(home.filePath("files"));
+        QTRY_COMPARE(backend.folder()->rowCount(), 80);
+        Theme theme(home.filePath("theme"));
+        FileOps fileOps;
+        Translator translator(home.filePath("language"), home.path());
+        Thumbnails thumbnails(home.filePath("cache"), {home.filePath("none")});
+        qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("plugins", QVariantMap{{"views", QVariantMap{}}});
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        QQmlComponent component(&engine);
+        component.setData(QString(R"(
+            import QtQuick
+            Window {
+                width: 600; height: 480; visible: true
+                property alias cursor: folderView.currentIndex
+                %1 { id: folderView; anchors.fill: parent; Component.onCompleted: focusView() }
+                function cursorInView() {
+                    const item = folderView.menuAnchor()
+                    const y = item ? item.mapToItem(null, 0, 0).y : -1
+                    return y >= 0 && y + item.height <= height
+                }
+            }
+        )").arg(viewType).toUtf8(), QUrl::fromLocalFile(sourceFolder() + "/KeyboardScrollTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        const auto cursorInView = [&] {
+            QVariant inView;
+            QMetaObject::invokeMethod(root.get(), "cursorInView", Q_RETURN_ARG(QVariant, inView));
+            return inView.toBool();
+        };
+        // Thirty presses take the cursor well past the fold in every view.
+        for (int i = 0; i < 30; ++i) {
+            QTest::keyClick(window, Qt::Key_Down);
+            QTRY_VERIFY(cursorInView());
+        }
+        QVERIFY(root->property("cursor").toInt() >= 29);
+    }
+
     void gridBandHitsTheTilesBothWays()
     {
         // The rubber band's hit areas sit where the grid put the tiles, also
