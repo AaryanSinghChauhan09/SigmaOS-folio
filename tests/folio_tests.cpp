@@ -608,6 +608,9 @@ private slots:
         // The folder counts just count, the hidden only when they show.
         QCOMPARE(FolderModel::itemCount(dir.path(), false), 4);
         QCOMPARE(FolderModel::itemCount(dir.path(), true), 5);
+        // Stopped partway through, a count is unknown rather than partial.
+        int checks = 0;
+        QCOMPARE(FolderModel::itemCount(dir.path(), false, [&] { return ++checks > 1; }), -1);
     }
 
     void folderModelLoadsInTheBackground()
