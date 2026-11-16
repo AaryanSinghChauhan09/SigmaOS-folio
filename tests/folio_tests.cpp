@@ -537,12 +537,139 @@ static ChooserRequest chooserRequest(ChooserRequest::Mode mode, const QVariantMa
 
 class FolioTests : public QObject {
     Q_OBJECT
+    // Where the tests' folders keep their orders, away from the real ones.
+    QTemporaryDir settings;
 
 private slots:
     void initTestCase()
     {
         // No test ever reaches the real udisks, which would change real disks.
         fakeDisks({});
+        Backend::setSettingsFile(settings.filePath("folio.conf"));
+    }
+
+    void foldersRememberTheirOrderAndPassItDown()
+    {
+        QTemporaryDir home;
+        for (const char *dir : {"Downloads/monkey/deep", "Downloads/zebra", "Music"})
+            QDir(home.path()).mkpath(dir);
+        const QString downloads = home.filePath("Downloads"), monkey = home.filePath("Downloads/monkey");
+        Backend backend(home.path());
+        backend.navigate(downloads);
+        QCOMPARE(backend.folder()->sortMode(), QString("name"));
+        backend.chooseSort("modified");
+
+        // The folders inside take it, however deep; the ones beside don't.
+        backend.navigate(monkey);
+        QCOMPARE(backend.folder()->sortMode(), QString("modified"));
+        backend.navigate(monkey + "/deep");
+        QCOMPARE(backend.folder()->sortMode(), QString("modified"));
+        backend.navigate(home.filePath("Music"));
+        QCOMPARE(backend.folder()->sortMode(), QString("name"));
+        backend.navigate(home.path());
+        QCOMPARE(backend.folder()->sortMode(), QString("name"));
+
+        // A folder inside can have its own, which its parent's doesn't undo.
+        backend.navigate(monkey);
+        backend.chooseSort("size");
+        backend.navigate(downloads);
+        QCOMPARE(backend.folder()->sortMode(), QString("modified"));
+        backend.chooseSort("kind");
+        backend.navigate(home.filePath("Downloads/zebra"));
+        QCOMPARE(backend.folder()->sortMode(), QString("kind"));
+        backend.back();
+        backend.back();
+        QCOMPARE(backend.path(), monkey);
+        QCOMPARE(backend.folder()->sortMode(), QString("size"));
+        QCOMPARE(Backend::sortFor(monkey + "/deep"), QString("size"));
+
+        // Kept for the next launch, and for every window: another pane
+        // arrives in the same orders.
+        Backend other(home.path());
+        other.navigate(monkey + "/deep");
+        QCOMPARE(other.folder()->sortMode(), QString("size"));
+
+        // Put back in its parent's order, a folder follows the parent again.
+        backend.chooseSort("kind");
+        backend.navigate(downloads);
+        backend.chooseSort("oldest");
+        QCOMPARE(Backend::sortFor(monkey), QString("oldest"));
+
+        // Choosing the order a folder already has, now its parent's too,
+        // frees it to follow the parent.
+        backend.navigate(monkey);
+        backend.chooseSort("size");
+        backend.navigate(downloads);
+        backend.chooseSort("size");
+        backend.navigate(monkey);
+        backend.chooseSort("size");
+        backend.navigate(downloads);
+        backend.chooseSort("name");
+        QCOMPARE(Backend::sortFor(monkey), QString("name"));
+    }
+
+    void columnsShowEachFolderInItsOwnOrder()
+    {
+        QTemporaryDir home;
+        QDir(home.path()).mkpath("Downloads/monkey/deep");
+        const QString downloads = home.filePath("Downloads"), monkey = home.filePath("Downloads/monkey");
+        Backend backend(home.path());
+        backend.navigate(downloads);
+        backend.chooseSort("modified");
+        backend.navigate(monkey + "/deep");
+        backend.chooseSort("size");
+        backend.goUp();
+        Theme theme(home.filePath("theme"));
+        FileOps fileOps;
+        Translator translator(home.filePath("language"), home.path());
+        Thumbnails thumbnails(home.filePath("cache"), {home.filePath("none")});
+        qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("plugins", QVariantMap{{"views", QVariantMap{}}});
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            Window {
+                width: 900; height: 480; visible: true
+                property alias cursor: folderView.currentIndex
+                FolderColumns { id: folderView; anchors.fill: parent; Component.onCompleted: focusView() }
+            }
+        )", QUrl::fromLocalFile(sourceFolder() + "/ColumnsSortTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        // The orders of the folders the columns show, the one shown too.
+        const auto orders = [&] {
+            QStringList found;
+            std::function<void(QQuickItem *)> walk = [&](QQuickItem *item) {
+                auto *model = qobject_cast<FolderModel *>(item->property("model").value<QObject *>());
+                if (model && !model->path().isEmpty())
+                    found << QFileInfo(model->path()).fileName() + ":" + model->sortMode();
+                for (auto *child : item->childItems())
+                    walk(child);
+            };
+            walk(qobject_cast<QQuickWindow *>(root.get())->contentItem());
+            found.removeDuplicates();
+            found.sort();
+            return found;
+        };
+        // The cursor on deep, its contents beside it in deep's order; the
+        // folders above in their own.
+        QTRY_COMPARE(backend.folder()->rowCount(), 1);
+        root->setProperty("cursor", 0);
+        QTRY_VERIFY2(orders().contains("deep:size"), qPrintable(orders().join(" ")));
+        QVERIFY(orders().contains("Downloads:modified"));
+        QVERIFY(orders().contains(QFileInfo(home.path()).fileName() + ":name"));
+        // A choice in the folder shown reaches the columns as it's made:
+        // deep keeps its own, home its own.
+        backend.chooseSort("oldest");
+        QStringList expected({"Downloads:modified", QFileInfo(home.path()).fileName() + ":name", "deep:size", "monkey:oldest"});
+        expected.sort();
+        QTRY_COMPARE(orders(), expected);
     }
 
     void folderListsDirectoriesFirstWithoutHidden()

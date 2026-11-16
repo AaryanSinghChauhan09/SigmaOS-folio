@@ -101,7 +101,7 @@ Item {
                             id: folder
                             path: ancestor.path
                             showHidden: backend.folder.showHidden
-                            sortMode: backend.folder.sortMode
+                            sortMode: { backend.sortsRevision; return backend.sortOf(ancestor.path) }
                             filter: backend.folder.filter
                             onLoaded: column.revealNext()
                         }
@@ -198,7 +198,7 @@ Item {
                     id: insideFolder
                     path: view.selected.isDir === true ? view.selected.path : ""
                     showHidden: backend.folder.showHidden
-                    sortMode: backend.folder.sortMode
+                    sortMode: { backend.sortsRevision; return backend.sortOf(insideFolder.path) }
                     filter: backend.folder.filter
                 }
                 Connections {
