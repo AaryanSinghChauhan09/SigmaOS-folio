@@ -6542,6 +6542,25 @@ private slots:
         window = open(request);
         QVERIFY(window);
         QTRY_COMPARE(listed(window), QStringList({"inner"}));
+        // It arrives with no cursor, so no subfolder looks chosen; the
+        // arrows still put one on the first.
+        const auto cursor = [](QQuickWindow *window) {
+            QObject *pane = window->property("activePane").value<QObject *>();
+            return pane->property("current").toMap().value("path").toString();
+        };
+        QCOMPARE(cursor(window), QString());
+        QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(cursor(window), home.filePath("pick/inner"));
+        // An item picked to be shown is still shown, though it has the
+        // name of the folder just left.
+        QDir(home.path()).mkpath("pick/inner/pick");
+        paneOf(window)->showItem(home.filePath("pick/inner/pick"));
+        QTRY_COMPARE(paneOf(window)->path(), home.filePath("pick/inner"));
+        QTRY_COMPARE(cursor(window), home.filePath("pick/inner/pick"));
+        paneOf(window)->goUp();
+        QTRY_COMPARE(paneOf(window)->path(), home.filePath("pick"));
+        QTRY_COMPARE(listed(window), QStringList({"inner"}));
+        QCOMPARE(cursor(window), QString());
         QTest::keyClick(window, Qt::Key_Return, Qt::ControlModifier);
         QCOMPARE(replies, (QList<std::pair<uint, QStringList>>{{0, {uri("pick")}}}));
 
@@ -6556,6 +6575,30 @@ private slots:
         window = open(request);
         QVERIFY(window);
         QTRY_VERIFY(window->activeFocusItem() && window->activeFocusItem()->property("text").toString() == "a.txt");
+        // Saving answers with the folder shown too: no cursor on arriving
+        // in one, nor on coming back up out of a subfolder.
+        QCOMPARE(cursor(window), QString());
+        paneOf(window)->navigate(home.filePath("pick"));
+        QTRY_COMPARE(listed(window), QStringList({"inner"}));
+        QCOMPARE(cursor(window), QString());
+        paneOf(window)->goUp();
+        QTRY_COMPARE(paneOf(window)->path(), home.path());
+        QTRY_VERIFY(listed(window).contains("pick"));
+        QCOMPARE(cursor(window), QString());
+        // Nor on going back to a folder that isn't the one just left's.
+        paneOf(window)->navigate(home.filePath("pick/inner"));
+        QTRY_COMPARE(listed(window), QStringList({"pick"}));
+        paneOf(window)->back();
+        QTRY_COMPARE(paneOf(window)->path(), home.path());
+        QTRY_VERIFY(listed(window).contains("pick"));
+        QCOMPARE(cursor(window), QString());
+        // Nor on going back before the folder left had even loaded.
+        QDir(home.path()).mkpath("pick/unseen");
+        paneOf(window)->navigate(home.filePath("pick/unseen"));
+        paneOf(window)->back();
+        QTRY_VERIFY(paneOf(window)->folder()->path() == home.path() && !paneOf(window)->folder()->loading());
+        QTest::qWait(100);
+        QCOMPARE(cursor(window), QString());
         QTest::keyClick(window, Qt::Key_Return);
         QTest::keyClick(window, Qt::Key_Escape);
         QVERIFY(replies.isEmpty());
