@@ -1,4 +1,5 @@
 #include "foldermodel.h"
+#include "fileops.h"
 
 #include <QCache>
 #include <QCollator>
@@ -14,6 +15,7 @@
 #include <QMimeDatabase>
 #include <QtConcurrent>
 #include <algorithm>
+#include <tuple>
 #include <sys/stat.h>
 
 FolderModel::FolderModel(QObject *parent) : QAbstractListModel(parent) {
@@ -329,6 +331,28 @@ QVector<FolderModel::Entry> FolderModel::list(const QString &path, bool showHidd
     return entries;
 }
 
+bool FolderModel::isTrash(const QString &path) {
+    return path == QDir::cleanPath(FileOps::homeTrash() + "/files");
+}
+
+QVector<FolderModel::Entry> FolderModel::listTrash(const QStringList &trashDirs, const QString &query, bool showHidden,
+                                                   const QString &sort, const std::function<bool()> &stop,
+                                                   int limit, const QLocale &locale, const QStringList &filter) {
+    // A search's limit is for every trash together, and a listing left
+    // behind stops before it reads another drive.
+    QVector<Entry> entries;
+    for (const QString &dir : trashDirs) {
+        if (stop && stop())
+            return {};
+        if (!query.isEmpty() && entries.size() >= limit)
+            break;
+        entries += query.isEmpty() ? list(dir + "/files", showHidden, sort, nullptr, stop, locale)
+                                   : search(dir + "/files", query, showHidden, sort, stop, limit - entries.size(), locale, filter);
+    }
+    sortEntries(entries, sort, locale);
+    return entries;
+}
+
 FolderModel::Entry FolderModel::entryFor(const QFileInfo &info, const QMimeDatabase &mimes) {
     Entry e;
     e.name = info.fileName();
@@ -521,13 +545,13 @@ void FolderModel::reload() {
     const QStringList filter = m_filter;
     *m_latest = generation;
     const auto latest = m_latest;
-    auto *watcher = new QFutureWatcher<QPair<QVector<Entry>, QString>>(this);
+    auto *watcher = new QFutureWatcher<std::tuple<QVector<Entry>, QString, QStringList>>(this);
     connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
         watcher->deleteLater();
         if (generation != m_generation)
             return; // A newer listing replaced this one while it ran.
         m_staleClear.stop();
-        const auto [entries, error] = watcher->result();
+        const auto [entries, error, trashDirs] = watcher->result();
         // Unchanged (the usual case after showing a remembered listing):
         // leave the items alone, and only fill in folder counts still missing.
         const bool same = error == m_error && !m_entries.isEmpty() && sameListing(m_entries, entries);
@@ -543,6 +567,10 @@ void FolderModel::reload() {
                 emit selectionChanged();
             }
         }
+        // Every drive's trash is watched while the trash is shown, as the home one is.
+        for (const QString &dir : trashDirs.mid(1))
+            if (!m_watcher.directories().contains(dir + "/files"))
+                m_watcher.addPath(dir + "/files");
         setError(error);
         setLoading(false);
         emit loaded();
@@ -553,12 +581,16 @@ void FolderModel::reload() {
     watcher->setFuture(QtConcurrent::run(&FolderModel::listingPool(), [path, showHidden, sort, query, items, filter, latest, generation, locale] {
         QString error;
         const auto overtaken = [&] { return *latest != generation; };
+        // Finding the drives' trash looks over every mount, so it's done here,
+        // off the window's thread.
+        const QStringList trashDirs = isTrash(path) ? FileOps::trashDirs() : QStringList();
         auto entries = isPluginView(path) ? listItems(items, query)
+                     : isTrash(path) ? listTrash(trashDirs, query, showHidden, sort, overtaken, 1000, locale, filter)
                      : query.isEmpty() || path == recentPath() ? list(path, showHidden, sort, &error, overtaken, locale)
                      : search(path, query, showHidden, sort, overtaken, 1000, locale, filter);
         if (!isPluginView(path))
             entries.removeIf([&](const Entry &entry) { return !fits(filter, entry); });
-        return qMakePair(entries, error);
+        return std::make_tuple(entries, error, trashDirs);
     }));
 }
 

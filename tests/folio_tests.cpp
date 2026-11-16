@@ -1814,6 +1814,30 @@ private slots:
         QVERIFY(FolderModel::listRecent(dir.filePath("recently-used.xbel"), false, 200, [&] { return ++checks > 3; }).size() == 1);
     }
 
+    void trashListsEveryDrivesTrash()
+    {
+        // Another drive's trash is listed and searched with the home one's,
+        // sorted together; a drive without one is passed over.
+        QTemporaryDir home, other;
+        QDir().mkpath(home.filePath("files"));
+        QDir().mkpath(other.filePath("files"));
+        write(home.filePath("files/b.txt"), "x");
+        write(other.filePath("files/a.txt"), "x");
+        const QStringList dirs{home.path(), other.path(), other.filePath("none")};
+        const auto entries = FolderModel::listTrash(dirs, {}, false, "name");
+        QCOMPARE(entries.size(), 2);
+        QCOMPARE(entries.at(0).path, other.filePath("files/a.txt"));
+        QCOMPARE(entries.at(1).path, home.filePath("files/b.txt"));
+        const auto found = FolderModel::listTrash(dirs, "a", false, "name");
+        QCOMPARE(found.size(), 1);
+        QCOMPARE(found.at(0).path, other.filePath("files/a.txt"));
+        // A search's limit is for every trash together, and a listing left
+        // once the first trash is read reads no other.
+        QCOMPARE(FolderModel::listTrash(dirs, "txt", false, "name", {}, 1).size(), 1);
+        int checks = 0;
+        QVERIFY(FolderModel::listTrash(dirs, {}, false, "name", [&] { return ++checks > 2; }).isEmpty());
+    }
+
     void folderSortsFiveWays()
     {
         QVector<FolderModel::Entry> e(4);
