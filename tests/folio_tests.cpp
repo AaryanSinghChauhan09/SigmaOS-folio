@@ -807,6 +807,82 @@ private slots:
         QCOMPARE(found.first().name, QString("real/match.txt"));
     }
 
+    void searchStartsOnItsFirstResult()
+    {
+        // A search lists its matches on the folder's own path, so it kept the
+        // cursor's row as a re-read does, instead of starting on its first (#96).
+        QTemporaryDir home, plugins;
+        QVERIFY(QDir(home.path()).mkdir("files"));
+        for (int i = 0; i < 12; ++i)
+            write(home.filePath(QString("files/file-%1.txt").arg(i, 2, 10, QLatin1Char('0'))), "x");
+        Backend backend(home.path());
+        Theme theme(home.filePath("theme"));
+        Places places(home.path());
+        FileOps fileOps;
+        Plugins bundled("en", {plugins.path()}, home.filePath("folio.conf"));
+        Translator translator(home.filePath("language"), home.path());
+        Thumbnails thumbnails(home.filePath("cache"), {home.filePath("none")});
+        qmlRegisterType<FolderModel>("Folio", 1, 0, "FolderModel");
+        QQmlEngine engine;
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("chooser", static_cast<QObject *>(nullptr));
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("plugins", &bundled);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("places", &places);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            import QtQuick.Controls
+            ApplicationWindow {
+                width: 900; height: 620; visible: true
+                property string viewMode: "columns"
+                property real zoom: 1
+                property bool split: false
+                property bool previewVisible: false
+                property bool detailsFit: false
+                property bool helpVisible: false
+                property var activePane: null
+                function raise() {}
+                function requestActivate() {}
+                FolderPane { id: pane; anchors.fill: parent; focus: true }
+                Component.onCompleted: activePane = pane
+                readonly property var paneItem: pane
+            }
+        )", QUrl::fromLocalFile(sourceFolder() + "/SearchFirstResultTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        window->requestActivate();
+        QVERIFY(QTest::qWaitForWindowActive(window));
+        auto *pane = root->property("paneItem").value<QObject *>();
+        QVERIFY(pane);
+        QVERIFY(QMetaObject::invokeMethod(pane, "focusView"));
+
+        // Let the pane record the unfiltered folder before searching it.
+        backend.navigate(home.filePath("files"));
+        QTRY_COMPARE(backend.folder()->count(), 12);
+        const auto cursor = [&] { return pane->property("current").toMap().value("path").toString(); };
+        QTRY_COMPARE(cursor(), home.filePath("files/file-00.txt"));
+        for (int i = 0; i < 5; ++i)
+            QTest::keyClick(window, Qt::Key_Down);
+        QTRY_COMPARE(cursor(), home.filePath("files/file-05.txt"));
+
+        // Two matches, the first of them file-10: a new query starts on its
+        // first result, not on the row the cursor had.
+        backend.folder()->setQuery("file-1");
+        QTRY_COMPARE(backend.folder()->count(), 2);
+        QTRY_COMPARE(cursor(), home.filePath("files/file-10.txt"));
+
+        // Ending it keeps the cursor on what it found.
+        backend.folder()->setQuery(QString());
+        QTRY_VERIFY(!backend.folder()->loading());
+        QTRY_COMPARE(cursor(), home.filePath("files/file-10.txt"));
+    }
+
     void folderModelSwapsFoldersWithoutAnEmptyFrame()
     {
         QTemporaryDir a, b;
@@ -6767,9 +6843,10 @@ private slots:
         engine.rootContext()->setContextProperty("theme", &theme);
         engine.rootContext()->setContextProperty("places", &places);
         engine.rootContext()->setContextProperty("plugins", &plugged);
+        // A dialog can reply as the window is destroyed after a failed check.
+        QList<std::pair<uint, QStringList>> replies;
         Windows windows(&engine, &plugged);
 
-        QList<std::pair<uint, QStringList>> replies;
         const auto open = [&](const ChooserRequest &request) -> QQuickWindow * {
             auto *dialog = new ChooserDialog(request, ":1.1", [&](uint response, const QVariantMap &results) {
                 replies.append({response, results.value("uris").toStringList()});
@@ -6932,6 +7009,9 @@ private slots:
         paneOf(window)->navigate(home.filePath("pick"));
         QTRY_COMPARE(listed(window), QStringList({"inner"}));
         QCOMPARE(cursor(window), QString());
+        // A search in the same folder puts the cursor on the first match.
+        paneOf(window)->folder()->setQuery("inner");
+        QTRY_COMPARE(cursor(window), home.filePath("pick/inner"));
         paneOf(window)->goUp();
         QTRY_COMPARE(paneOf(window)->path(), home.path());
         QTRY_VERIFY(listed(window).contains("pick"));
