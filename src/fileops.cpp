@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <poll.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -39,6 +40,7 @@
 static QList<FileOps::Change> s_undo, s_redo;
 static QList<FileOps *> s_everyone;
 static constexpr int historyLength = 50;
+static constexpr int stopCheckMs = 100;
 
 // Work under way in this Folio, whichever pane started it. Panes work side
 // by side, but an undo or redo runs alone, so nothing changes the items it
@@ -223,8 +225,14 @@ static bool writeAll(int fd, const char *data, qint64 size) {
 // it's made with them, so a private file is never open to others while it's
 // copied.
 static bool copyFile(const QString &from, const QString &to, FileOps::Job *job) {
-    QFile in(from), out(to);
-    if (!in.open(QIODevice::ReadOnly) || !out.open(QIODevice::WriteOnly | QIODevice::NewOnly, in.permissions()))
+    QFile in, out(to);
+    // An open that waits would hold a pipe nobody writes to, or a file another program holds a lease on, out of Stop's reach; the lease is asked for again until it's given up.
+    int source;
+    while ((source = ::open(QFile::encodeName(from).constData(), O_RDONLY | O_NONBLOCK | O_CLOEXEC)) < 0
+           && errno == EWOULDBLOCK && !(job && job->cancelled))
+        ::usleep(stopCheckMs * 1000);
+    if (source < 0 || !in.open(source, QIODevice::ReadOnly, QFileDevice::AutoCloseHandle)
+        || !out.open(QIODevice::WriteOnly | QIODevice::NewOnly, in.permissions()))
         return false;
     bool kernel = true, ok = true;
     QByteArray buffer;
@@ -245,12 +253,16 @@ static bool copyFile(const QString &from, const QString &to, FileOps::Job *job) 
                 continue;
             }
         } else {
+            // Read only what's there: a pipe with no writer yet reads as ended, and a silent one would hold the copy out of Stop's reach.
+            pollfd waiting{in.handle(), POLLIN, 0};
+            if (::poll(&waiting, 1, stopCheckMs) <= 0)
+                continue;
             buffer.resize(1 << 20);
             n = ::read(in.handle(), buffer.data(), buffer.size());
             if (n > 0 && !writeAll(out.handle(), buffer.constData(), n))
                 n = -1;
         }
-        if (n < 0 && errno == EINTR)
+        if (n < 0 && (errno == EINTR || errno == EAGAIN))
             continue;
         if (n <= 0) {
             ok = n == 0;
