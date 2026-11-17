@@ -6185,6 +6185,7 @@ private slots:
                 width: 600; height: 480; visible: true
                 property alias cursor: folderView.currentIndex
                 %1 { id: folderView; anchors.fill: parent; Component.onCompleted: focusView() }
+                function letGo() { folderView.letGo() }
                 function cursorInView() {
                     const item = folderView.menuAnchor()
                     const y = item ? item.mapToItem(null, 0, 0).y : -1
@@ -6208,6 +6209,39 @@ private slots:
             QTRY_VERIFY(cursorInView());
         }
         QVERIFY(root->property("cursor").toInt() >= 29);
+
+        // Page Down moves a screenful (more than one row, keeping the
+        // cursor in sight), Page Up as far back, and both stop at the ends.
+        root->setProperty("cursor", 0);
+        QTRY_VERIFY(cursorInView());
+        const int before = 0;
+        QTest::keyClick(window, Qt::Key_PageDown);
+        const int paged = root->property("cursor").toInt() - before;
+        QVERIFY2(paged > 1, qPrintable(QString::number(paged)));
+        QTRY_VERIFY(cursorInView());
+        QCOMPARE(backend.folder()->selectedCount(), 1);
+        QTest::keyClick(window, Qt::Key_PageUp);
+        QCOMPARE(root->property("cursor").toInt(), before);
+        QTRY_VERIFY(cursorInView());
+        for (int i = 0; i < 80; ++i)
+            QTest::keyClick(window, Qt::Key_PageDown);
+        QCOMPARE(root->property("cursor").toInt(), 79);
+        // With Shift, it selects the way there.
+        QTest::keyClick(window, Qt::Key_PageUp, Qt::ShiftModifier);
+        QCOMPARE(backend.folder()->selectedCount(), paged + 1);
+        for (int i = 0; i < 80; ++i)
+            QTest::keyClick(window, Qt::Key_PageUp);
+        QCOMPARE(root->property("cursor").toInt(), 0);
+        QTRY_VERIFY(cursorInView());
+
+        // Let go of (a click on empty space), Shift+Page Down selects from
+        // the first item on, and again keeps what it selected.
+        QMetaObject::invokeMethod(root.get(), "letGo");
+        QCOMPARE(root->property("cursor").toInt(), -1);
+        QTest::keyClick(window, Qt::Key_PageDown, Qt::ShiftModifier);
+        QTest::keyClick(window, Qt::Key_PageDown, Qt::ShiftModifier);
+        QCOMPARE(root->property("cursor").toInt(), 2 * paged);
+        QCOMPARE(backend.folder()->selectedCount(), 2 * paged + 1);
     }
 
     void gridBandHitsTheTilesBothWays()
