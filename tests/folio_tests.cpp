@@ -5827,6 +5827,52 @@ private slots:
         QCOMPARE(Thumbnails::bucketFor(512), QString("x-large"));
     }
 
+    // The details' sharp pictures: a large one is made once at the size
+    // asked for and kept, then read back from Folio's own cache until it
+    // changes; a small one is read as it is.
+    void thumbnailsKeepSharpPictures()
+    {
+        QTemporaryDir dir;
+        const QString big = dir.filePath("big.png"), small = dir.filePath("small.png");
+        QImage picture(3000, 2000, QImage::Format_RGB32);
+        picture.fill(Qt::darkCyan);
+        QVERIFY(picture.save(big));
+        QVERIFY(picture.scaled(400, 300).save(small));
+        Thumbnails thumbnails(dir.filePath("cache/thumbnails"), {dir.filePath("none")});
+
+        bool fresh = false;
+        QDateTime read;
+        QImage image = thumbnails.sharp(big, "image/png", 1024, &fresh, &read);
+        QVERIFY(fresh);
+        QCOMPARE(image.size(), QSize(1024, 682));
+        QCOMPARE(read, QFileInfo(big).lastModified());
+        thumbnails.keep(image, big, 1024, read);
+        const QString kept = dir.filePath("cache/folio/sharp/1024/") + Thumbnails::cacheKey(big).chopped(4) + ".jpg";
+        QVERIFY2(QFileInfo::exists(kept), qPrintable(kept));
+        // Only its owner may read it, and the folders it's in.
+        QCOMPARE(QFileInfo(kept).permissions() & (QFile::ReadGroup | QFile::ReadOther), QFileDevice::Permissions());
+        QCOMPARE(QFileInfo(QFileInfo(kept).absolutePath()).permissions() & (QFile::ReadOther | QFile::ExeOther), QFileDevice::Permissions());
+        // Kept under the time it was read at, not the file's time now: one
+        // saved over while it was read is made again.
+        QCOMPARE(QFileInfo(kept).lastModified(), read);
+        image = thumbnails.sharp(big, "image/png", 1024, &fresh, &read);
+        QVERIFY(!fresh);
+        QCOMPARE(image.size(), QSize(1024, 682));
+
+        // Changed, it's made again.
+        {
+            QFile file(big);
+            QVERIFY(file.open(QIODevice::ReadWrite));
+            QVERIFY(file.setFileTime(QDateTime::currentDateTime().addSecs(60), QFileDevice::FileModificationTime));
+        }
+        thumbnails.sharp(big, "image/png", 1024, &fresh, &read);
+        QVERIFY(fresh);
+
+        image = thumbnails.sharp(small, "image/png", 1024, &fresh, &read);
+        QVERIFY(!fresh);
+        QCOMPARE(image.size(), QSize(400, 300));
+    }
+
     void thumbnailsFollowAPictureSavedOver()
     {
         // Qt keeps the images it has shown by their URL, and a re-read makes
