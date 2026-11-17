@@ -2577,19 +2577,29 @@ private slots:
         QDir(dir.path()).mkdir("sub");
         FileOps ops;
         QSignalSpy notice(&ops, &FileOps::notice), failed(&ops, &FileOps::failed);
+        // Each rename is told, so the sidebar's pins follow it: by Rename,
+        // and by undoing and redoing one. A blank name renames nothing.
+        QSignalSpy renamed(&ops, &FileOps::renamed);
+        const auto lastRename = [&] { return renamed.last().at(0).toString() + " > " + renamed.last().at(1).toString(); };
         QCOMPARE(ops.undoName(), QString());
 
+        QCOMPARE(ops.rename(dir.filePath("a.txt"), "  "), QString());
+        QCOMPARE(renamed.count(), 0);
         QCOMPARE(ops.rename(dir.filePath("a.txt"), "b.txt"), QString());
+        QCOMPARE(lastRename(), dir.filePath("a.txt") + " > " + dir.filePath("b.txt"));
         QCOMPARE(ops.undoName(), QString("Undo Rename"));
         ops.undo();
         QTRY_VERIFY(ops.busy().isEmpty());
         QVERIFY(QFile::exists(dir.filePath("a.txt")));
         QVERIFY(!QFile::exists(dir.filePath("b.txt")));
         QCOMPARE(notice.last().first().toString(), QString("Undid renaming a.txt."));
+        QCOMPARE(lastRename(), dir.filePath("b.txt") + " > " + dir.filePath("a.txt"));
         ops.redo();
         QTRY_VERIFY(ops.busy().isEmpty());
         QVERIFY(QFile::exists(dir.filePath("b.txt")));
         QCOMPARE(notice.last().first().toString(), QString("Redid renaming a.txt."));
+        QCOMPARE(lastRename(), dir.filePath("a.txt") + " > " + dir.filePath("b.txt"));
+        const int renames = renamed.count();
 
         ops.cut({dir.filePath("b.txt"), dir.filePath("c.txt")});
         ops.paste(dir.filePath("sub"));
@@ -2623,6 +2633,8 @@ private slots:
         QVERIFY(QDir(dir.filePath("sub")).isEmpty());
         QCOMPARE(QDir(data.filePath("Trash/files")).entryList(QDir::Files), QStringList({"b.txt", "c.txt"}));
         QCOMPARE(failed.count(), 0);
+        // Moving and trashing aren't renaming.
+        QCOMPARE(renamed.count(), renames);
 
         // Undo goes back through them all, the newest first.
         for (int i = 0; i < 3; ++i) {
@@ -2633,6 +2645,9 @@ private slots:
         QCOMPARE(contents(dir.filePath("c.txt")), QByteArray("c"));
         QCOMPARE(ops.undoName(), QString());
         QCOMPARE(failed.count(), 0);
+        // The last of them a rename, told as the others weren't.
+        QCOMPARE(renamed.count(), renames + 1);
+        QCOMPARE(lastRename(), dir.filePath("b.txt") + " > " + dir.filePath("a.txt"));
     }
 
     void undoAndRedoPasteAndReplace()
@@ -3932,6 +3947,73 @@ private slots:
         QVERIFY(saved.contains("Work/folio"));
         QVERIFY(!saved.contains("Work/hype"));
         QCOMPARE(places.pinned().size(), 1);
+    }
+
+    // Hide in a Home folder's sidebar menu takes it out of Home; Show in
+    // Home puts it back. A hidden one can be pinned, and a rename takes its
+    // hiding (or its pin) along.
+    void placesHideFoldersFromHome()
+    {
+        QTemporaryDir home;
+        for (const char *dir : {"Work", "go", "Dropbox", "Elsewhere/deep"})
+            QDir(home.path()).mkpath(dir);
+        auto names = [](const Places &p) {
+            QStringList list;
+            for (const auto &v : p.places()) list << v.toMap().value("name").toString();
+            return list;
+        };
+        Places places(home.path());
+        QCOMPARE(names(places), QStringList({"Dropbox", "Elsewhere", "Go", "Work"}));
+
+        places.hideFromHome(home.filePath("go"));
+        QCOMPARE(names(places), QStringList({"Dropbox", "Elsewhere", "Work"}));
+        QVERIFY(places.hiddenFromHome(home.filePath("go")));
+        QVERIFY(!places.hiddenFromHome(home.filePath("Work")));
+        // Only home's own folders are hidden from Home.
+        places.hideFromHome(home.filePath("Elsewhere/deep"));
+        QVERIFY(!places.hiddenFromHome(home.filePath("Elsewhere/deep")));
+        // Kept between launches.
+        QCOMPARE(names(Places(home.path())), QStringList({"Dropbox", "Elsewhere", "Work"}));
+
+        // No longer under Home, it can be pinned.
+        QCOMPARE(places.pin(home.filePath("go")), QString());
+        QCOMPARE(places.pinned().size(), 1);
+
+        // Renamed, it stays hidden and pinned under its new name.
+        QVERIFY(QDir(home.path()).rename("go", "golang"));
+        places.renamed(home.filePath("go"), home.filePath("golang"));
+        QVERIFY(places.hiddenFromHome(home.filePath("golang")));
+        QVERIFY(!places.hiddenFromHome(home.filePath("go")));
+        QVERIFY(places.isPinned(home.filePath("golang")));
+        QCOMPARE(names(places), QStringList({"Dropbox", "Elsewhere", "Work"}));
+
+        // Shown in Home again, it's there rather than among the pins.
+        places.showInHome(home.filePath("golang"));
+        QCOMPARE(names(places), QStringList({"Dropbox", "Elsewhere", "Golang", "Work"}));
+        QVERIFY(!places.hiddenFromHome(home.filePath("golang")));
+        QCOMPARE(places.pinned().size(), 0);
+
+
+        // A name is kept whole, whatever it has in it: hiding one with a
+        // newline hides it, not folders named after its halves.
+        QVERIFY(QDir(home.path()).mkdir("Two\nLines"));
+        QVERIFY(QDir(home.path()).mkdir("Two"));
+        Places lines(home.path());
+        lines.hideFromHome(home.filePath("Two\nLines"));
+        QVERIFY(lines.hiddenFromHome(home.filePath("Two\nLines")));
+        QVERIFY(!lines.hiddenFromHome(home.filePath("Two")));
+        QVERIFY(names(Places(home.path())).contains("Two"));
+        QVERIFY(!names(Places(home.path())).contains("Two\nLines"));
+        lines.showInHome(home.filePath("Two\nLines"));
+        // A save that fails says so, and changes nothing.
+        const QString settings = home.filePath(".config/folio");
+        QVERIFY(QFile::setPermissions(settings, QFile::ReadOwner | QFile::ExeOwner));
+        QSignalSpy failed(&places, &Places::failed);
+        places.hideFromHome(home.filePath("Work"));
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(failed.last().first().toString().startsWith("Couldn't save the hidden folders"));
+        QVERIFY(names(places).contains("Work"));
+        QVERIFY(QFile::setPermissions(settings, QFile::ReadOwner | QFile::WriteOwner | QFile::ExeOwner));
     }
 
     void typedViewsGoToTheirView()

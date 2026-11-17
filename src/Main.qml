@@ -172,6 +172,9 @@ ApplicationWindow {
                 target: win.activePane ? win.activePane.paneBackend : backend
                 onFinished: win.activePane.focusView()
                 onPlaceChosen: (path) => win.activePane.startAt(path)
+                onRenameRequested: (path) => win.activePane.renameFolder(path)
+                onDeleteRequested: (path) => win.activePane.confirmDelete([path])
+                onTrashRequested: (path) => win.activePane.paneFileOps.trash([path])
                 onFormatRequested: (disk) => win.activePane.formatDrive(disk)
                 Layout.topMargin: parent.parent.barHeight
                 Layout.preferredWidth: 190
