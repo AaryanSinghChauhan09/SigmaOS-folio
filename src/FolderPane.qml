@@ -17,10 +17,11 @@ FocusScope {
     readonly property var paneFileOps: fileOps
     property bool closable: false
     signal closeRequested()
-    // How far this pane's path bar reaches right, over the details column,
-    // so the rightmost pane's buttons sit at the window's edge.
-    property int barExtension: 0
+    // How far this pane's path bar reaches left, over the sidebar, so the
+    // first pane's path starts at the window's edge.
     property int barLeft: 0
+    // The columns' details column, while it shows a file, for Tab to reach.
+    readonly property var details: view.item && view.item.details ? view.item.details : null
 
     // Each pane has its own view. The window's own pane is the one
     // remembered between launches; the right pane of a split starts with
@@ -62,7 +63,9 @@ FocusScope {
     // have it, not while Tab has put it in the sidebar or the details, where
     // Delete or Space would act on files out of the keyboard's sight.
     readonly property bool paneKeys: active && !typing
-    readonly property bool keys: paneKeys && activeFocus
+    // The details column is inside the pane, so the pane keeps the keyboard
+    // while Tab has put it there.
+    readonly property bool keys: paneKeys && activeFocus && !(details && details.hasKeyboard)
     // What file actions act on: everything selected, or the item under
     // the cursor when nothing is.
     function selectedPaths() {
@@ -126,8 +129,8 @@ FocusScope {
                     qsTr("Burn"), () => fileOps.burn(path, drive.id), true)
     }
 
-    // Whichever pane has the keyboard is the one keys, the sidebar and the
-    // details pane follow.
+    // Whichever pane has the keyboard is the one keys and the sidebar
+    // follow.
     onActiveFocusChanged: if (activeFocus && host) host.activePane = pane
     function focusView() { if (view.item) view.item.focusView() }
 
@@ -336,7 +339,7 @@ FocusScope {
         spacing: 0
 
         // Room for the path bar, which is drawn on top so it can reach over
-        // the details column.
+        // the sidebar.
         Item { Layout.fillWidth: true; implicitHeight: pathBar.implicitHeight }
         // Work that ends within a second, as most deletes and copies do,
         // never flashes the banner: what's under way shows once it has
@@ -440,23 +443,19 @@ FocusScope {
         }
         Component { id: gridView; FolderGrid { zoom: pane.zoom; onZoomRequested: (step) => pane.zoomBy(step) } }
         Component { id: listView; FolderList { } }
-        Component { id: columnsView; FolderColumns { } }
+        Component { id: columnsView; FolderColumns { detailsPane: pane } }
     }
 
     // Drawn over the window's top bar. It reaches back over the sidebar for
-    // the first pane (so the path starts at the window's edge) and on over
-    // the details column for the last one (so the buttons end at the edge).
-    // Mirrored, the sidebar is on the right and the details on the left.
+    // the first pane, so the path starts at the window's edge. Mirrored,
+    // the sidebar is on the right.
     PathBar {
         id: pathBar
-        x: LayoutMirroring.enabled ? -pane.barExtension : -pane.barLeft
-        width: pane.barLeft + pane.width + pane.barExtension
+        x: LayoutMirroring.enabled ? 0 : -pane.barLeft
+        width: pane.barLeft + pane.width
         onEditDone: pane.focusView()
-        previewVisible: pane.host ? pane.host.previewVisible : true
-        previewFits: pane.host ? pane.host.detailsFit : true
         viewMode: pane.viewMode
         closable: pane.closable
-        onTogglePreview: if (pane.host) pane.host.previewVisible = !pane.host.previewVisible
         onCycleView: pane.cycleView()
         onCloseRequested: pane.closeRequested()
         // On the rightmost pane's bar. A file chooser is a dialog, not the
