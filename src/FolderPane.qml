@@ -38,7 +38,7 @@ FocusScope {
         zoom = zoomSteps[Math.max(0, Math.min(zoomSteps.length - 1, (at < 0 ? 1 : at) + step))]
     }
     function cycleView() {
-        viewMode = viewMode === "columns" ? "grid" : viewMode === "grid" ? "list" : "columns"
+        viewMode = viewMode === "columns" ? "list" : viewMode === "list" ? "grid" : "columns"
     }
 
     // The cursor's item, carried across a switch of view and a re-read of
@@ -201,8 +201,8 @@ FocusScope {
     // selected; pressed again, unpins it.
     Shortcut { sequence: "Ctrl+P"; enabled: pane.active && !pane.inView; onActivated: pane.togglePin(pane.current.isDir ? pane.current.path : backend.path) }
     Shortcut { sequence: "Ctrl+1"; enabled: pane.active; onActivated: pane.viewMode = "columns" }
-    Shortcut { sequence: "Ctrl+2"; enabled: pane.active; onActivated: pane.viewMode = "grid" }
-    Shortcut { sequence: "Ctrl+3"; enabled: pane.active; onActivated: pane.viewMode = "list" }
+    Shortcut { sequence: "Ctrl+2"; enabled: pane.active; onActivated: pane.viewMode = "list" }
+    Shortcut { sequence: "Ctrl+3"; enabled: pane.active; onActivated: pane.viewMode = "grid" }
     Shortcut { sequences: [StandardKey.ZoomIn, "Ctrl+="]; enabled: pane.active; onActivated: pane.zoomBy(1) }
     Shortcut { sequences: [StandardKey.ZoomOut]; enabled: pane.active; onActivated: pane.zoomBy(-1) }
     Shortcut { sequence: "Ctrl+0"; enabled: pane.active; onActivated: pane.zoom = 1 }
@@ -437,7 +437,7 @@ FocusScope {
 
         Item { implicitHeight: 16 }
 
-        // Columns, grid or list: each takes the folder's model and keeps the
+        // Columns, list or grid: each takes the folder's model and keeps the
         // pane's one selection.
         Loader {
             id: view

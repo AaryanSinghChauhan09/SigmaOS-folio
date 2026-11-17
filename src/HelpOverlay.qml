@@ -70,7 +70,7 @@ Rectangle {
             [qsTr("Stop the work under way"), [["Escape"]]]
         ]},
         { title: qsTr("View"), shortcuts: [
-            [qsTr("Columns, grid or list"), [["Ctrl", "1"], ["Ctrl", "2"], ["Ctrl", "3"]]],
+            [qsTr("Columns, list or grid"), [["Ctrl", "1"], ["Ctrl", "2"], ["Ctrl", "3"]]],
             [qsTr("Bigger, smaller or normal tiles"), [["Ctrl", "="], ["Ctrl", "-"], ["Ctrl", "0"]]],
             [qsTr("Next or previous sort order"), [["S"], ["Shift", "S"]]],
             [qsTr("Show hidden files"), [["Ctrl", "H"]]],
