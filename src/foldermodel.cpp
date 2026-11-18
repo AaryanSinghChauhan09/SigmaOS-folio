@@ -389,6 +389,40 @@ FolderModel::Entry FolderModel::entryFor(const QFileInfo &info, const QMimeDatab
     return e;
 }
 
+// What a search query asks for: a name containing some text, with one of
+// some extensions if it names them ("beach ext:jpg,png", "ext:pdf").
+struct SearchFilter {
+    QString text;
+    QStringList extensions;
+
+    explicit SearchFilter(const QString &query) {
+        const QString q = query.trimmed();
+        // Split keeping the empty words between repeated spaces, so the text
+        // left once the ext: words are taken out is as it was typed.
+        QStringList words;
+        for (const QString &word : q.split(QLatin1Char(' '))) {
+            if (word.startsWith(QLatin1String("ext:"), Qt::CaseInsensitive)) {
+                for (QString ext : word.mid(4).split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+                    if (ext.startsWith(QLatin1Char('.')))
+                        ext.remove(0, 1);
+                    if (!ext.isEmpty())
+                        extensions << ext.toLower();
+                }
+            } else {
+                words << word;
+            }
+        }
+        text = words.join(QLatin1Char(' ')).trimmed();
+    }
+
+    bool matches(const QFileInfo &info) const {
+        const QString name = info.fileName();
+        if (!extensions.isEmpty() && (info.isDir() || !extensions.contains(info.suffix().toLower())))
+            return false;
+        return name.contains(text, Qt::CaseInsensitive);
+    }
+};
+
 QVector<FolderModel::Entry> FolderModel::search(const QString &root, const QString &query, bool showHidden,
                                                 const QString &sort, const std::function<bool()> &stop,
                                                 int limit, const QLocale &locale, const QStringList &filter,
@@ -409,6 +443,7 @@ QVector<FolderModel::Entry> FolderModel::search(const QString &root, const QStri
     if (::stat(QFile::encodeName(root).constData(), &top) != 0)
         return entries;
     const QDir::Filters filters = entryFilters(showHidden);
+    const SearchFilter wanted(query);
 
     // Breadth first, so what's near comes before what's deep when there are
     // more matches than the limit.
@@ -423,7 +458,7 @@ QVector<FolderModel::Entry> FolderModel::search(const QString &root, const QStri
             if (stop && stop())
                 return {};
             const QFileInfo info = it.nextFileInfo();
-            if (info.fileName().contains(query, Qt::CaseInsensitive) && entries.size() < limit) {
+            if (entries.size() < limit && wanted.matches(info)) {
                 Entry e = entryFor(info, mimes);
                 e.name = base.relativeFilePath(e.path);
                 // Only what fits a file chooser's filter uses up the limit.

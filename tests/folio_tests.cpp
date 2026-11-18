@@ -1073,6 +1073,29 @@ private slots:
                  qPrintable(QString("told at %1 of %2").arg(lookedWhenTold).arg(looks)));
     }
 
+    void folderSearchFiltersByExtension()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("Photos/ext.d");
+        write(dir.filePath("IMG_001.JPG"), "x");
+        write(dir.filePath("IMG_002.png"), "x");
+        write(dir.filePath("Photos/notes.txt"), "x");
+        write(dir.filePath("Photos/IMG_x.jpg"), "x");
+        auto names = [&](const QString &query) {
+            QStringList out;
+            for (const auto &e : FolderModel::search(dir.path(), query, false, "name"))
+                out << e.name;
+            return out.join(", ");
+        };
+        QCOMPARE(names("ext:jpg"), QString("IMG_001.JPG, Photos/IMG_x.jpg"));
+        QCOMPARE(names("ext:.PNG,txt"), QString("IMG_002.png, Photos/notes.txt"));
+        QCOMPARE(names("img ext:jpg"), QString("IMG_001.JPG, Photos/IMG_x.jpg"));
+        // Plain text is matched as typed, spaces and all.
+        write(dir.filePath("my  notes.txt"), "x");
+        write(dir.filePath("my notes.txt"), "x");
+        QCOMPARE(names("my  notes"), QString("my  notes.txt"));
+    }
+
     void folderSearchSkipsSymlinkedFolders()
     {
         // A link back up the tree would otherwise be walked round and round.
