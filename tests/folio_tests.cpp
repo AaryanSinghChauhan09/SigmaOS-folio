@@ -33,6 +33,7 @@
 #include <QQuickItem>
 #include <QQuickWindow>
 #include <QSettings>
+#include <QSemaphore>
 #include <QSignalSpy>
 #include <QStandardPaths>
 #include <QTemporaryDir>
@@ -6703,6 +6704,63 @@ private slots:
         for (int i = 0; i < 400; ++i)
             longFence += "| a | b | c |\n";
         QVERIFY(Previewer::markdownOpening(longFence, 600).count('|') <= 600 + 4);
+    }
+
+    void previewSharesAnInFlightDecodeAcrossReloads()
+    {
+        // A window learning its final display scale makes the picture ask
+        // for its pixels again while the first decode is still running.
+        // That reload must join the decode in flight, not start a second.
+        struct GatedImages : QQuickImageProvider {
+            GatedImages() : QQuickImageProvider(QQuickImageProvider::Image) {}
+            std::atomic<int> reads{0};
+            QSemaphore release;
+            QImage requestImage(const QString &, QSize *size, const QSize &) override
+            {
+                if (reads.fetch_add(1) == 0)
+                    release.acquire();
+                QImage image(1600, 900, QImage::Format_RGB32);
+                image.fill(Qt::darkCyan);
+                *size = image.size();
+                return image;
+            }
+        };
+        QTemporaryDir home;
+        Theme theme(home.filePath("theme"));
+        QQmlEngine engine;
+        auto *images = new GatedImages;
+        engine.addImageProvider("gated", images);
+        const auto unblock = qScopeGuard([&] { images->release.release(); });
+        QQmlComponent stand(&engine);
+        stand.setData("import QtQml\n"
+                      "QtObject {\n"
+                      "    signal changed\n"
+                      "    property var item: ({ name: 'Picture', path: '/picture.png', mime: 'image/png', size: 1 })\n"
+                      "    property string viewer: 'image'\n"
+                      "    property string url: 'image://gated/picture'\n"
+                      "    property int count: 1\n"
+                      "    property int index: 0\n"
+                      "    property string type: 'PNG'\n"
+                      "    property string text\n"
+                      "}\n",
+                      QUrl());
+        std::unique_ptr<QObject> preview(stand.create());
+        QVERIFY2(preview, qPrintable(stand.errorString()));
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("previewer", preview.get());
+        QQmlComponent component(&engine, QUrl("qrc:/PreviewWindow.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *image = root->property("view").value<QQuickItem *>()->property("source").value<QObject *>();
+        QVERIFY(image);
+        QTRY_COMPARE(images->reads.load(), 1);
+        // Turning the cache off and on drops and re-requests the image as a
+        // scale change does, while leaving its source alone.
+        QVERIFY(image->setProperty("cache", false));
+        QVERIFY(image->setProperty("cache", true));
+        images->release.release();
+        QTRY_COMPARE(image->property("status").toInt(), 1);
+        QCOMPARE(images->reads.load(), 1);
     }
 
     void previewerStepsThroughTheFolder()
