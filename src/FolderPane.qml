@@ -292,6 +292,13 @@ FocusScope {
             else
                 backend.expectSelection(name)
         }
+        // A new folder is asked a name at once, the way the rename dialog
+        // does (Escape keeps "Untitled Folder"). Each pane has its own
+        // fileOps, so it's this pane's folder wherever it was made: an
+        // earlier column, or one opened in place in the list.
+        function onFolderCreated(folder, name) {
+            rename.open({ path: folder + "/" + name, isDir: true })
+        }
         function onFailed(message) { backend.showMessage(message) }
         function onNotice(notice) { backend.showNotice(notice) }
         // Work done (a folder of home's trashed, say) shows in the sidebar
