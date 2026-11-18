@@ -146,7 +146,7 @@ Item {
         // The name and the date are aligned explicitly, so that they're
         // mirrored: left as they are, they'd follow their own script, and a
         // Latin name would sit at the far end of a right-to-left row.
-        Text {
+        FolioText {
             Layout.fillWidth: true
             Layout.minimumWidth: 120
             horizontalAlignment: Text.AlignLeft
@@ -154,17 +154,20 @@ Item {
             color: row.current ? theme.accent : theme.foreground
             elide: Text.ElideMiddle
         }
-        Text {
+        // The size and date columns grow with the text, so the system's text
+        // size doesn't push them into the name.
+        FolioText {
             visible: row.showSize
-            Layout.preferredWidth: 96
+            Layout.preferredWidth: Math.round(96 * theme.textScale)
             horizontalAlignment: Text.AlignRight
             text: row.kind === "item" ? row.extension : row.isDir ? Format.count(row.itemCount) : Format.size(row.size)
             color: theme.secondaryForeground
-            font.pixelSize: 12
+            size: 12
+            elide: Text.ElideRight
         }
-        Text {
+        FolioText {
             visible: row.showDate
-            Layout.preferredWidth: 96
+            Layout.preferredWidth: Math.round(96 * theme.textScale)
             Layout.leftMargin: 12
             horizontalAlignment: Text.AlignLeft
             text: {
@@ -172,7 +175,7 @@ Item {
                 return Format.when(row.modified)
             }
             color: theme.secondaryForeground
-            font.pixelSize: 12
+            size: 12
             elide: Text.ElideRight
         }
         // Points to where the next column opens.
