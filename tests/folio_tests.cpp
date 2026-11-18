@@ -5358,6 +5358,7 @@ private slots:
             const Plugins::Run r = runBundled(plugin, plugin.poll, bin, home.path());
             return r.ok() ? Plugins::parseOutput(r.out) : std::nullopt;
         };
+        auto printed = [&](const QString &says) { return run(says, true)->printed; };
         // Nothing to say without a Dropbox folder.
         auto output = run("Up to date", true);
         QVERIFY(output && output->places.isEmpty());
@@ -5370,18 +5371,19 @@ private slots:
         QCOMPARE(output->places[0].icon, QString("dropbox.svg"));
         QVERIFY(output->places[0].status.isUndefined());
         QCOMPARE(output->actions, std::optional<QStringList>(QStringList{}));
-        // Up to date says nothing; links work while Dropbox runs.
-        output = run("Up to date", true);
-        QVERIFY(output->places[0].status.isUndefined());
-        QCOMPARE(output->actions, std::optional<QStringList>(QStringList{"link"}));
-        output = run("Syncing 3 files", true);
-        QCOMPARE(output->places[0].status.toString(), QString("syncing"));
-        QCOMPARE(output->places[0].tone, QString("warning"));
-        QCOMPARE(output->actions, std::optional<QStringList>(QStringList{"link"}));
-        output = run("Dropbox isn't running!", true);
-        QCOMPARE(output->places[0].status.toString(), QString("stopped"));
-        QCOMPARE(output->places[0].tone, QString("error"));
-        QCOMPARE(output->actions, std::optional<QStringList>(QStringList{}));
+        // The row never says Dropbox's state; links work while it runs.
+        for (const QString &says : QStringList{"Up to date", "Syncing 3 files", "Dropbox isn't running!"}) {
+            output = run(says, true);
+            QVERIFY(output->places[0].status.isUndefined());
+            QCOMPARE(output->actions,
+                     std::optional<QStringList>(says.contains("running") ? QStringList{} : QStringList{"link"}));
+        }
+        // But the poll still prints something new when the state changes, so
+        // a file's "syncing" in its details goes once the sync is done, and
+        // only then, not with every file Dropbox counts down.
+        QVERIFY(printed("Syncing 3 files") != printed("Up to date"));
+        QVERIFY(printed("Up to date") != printed("Dropbox isn't running!"));
+        QCOMPARE(printed("Syncing 3 files"), printed("Syncing 2 files"));
     }
 
     void dropboxPluginCopiesLinks()
