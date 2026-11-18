@@ -6,6 +6,7 @@
 #include <QFutureWatcher>
 #include <QImageReader>
 #include <QMimeDatabase>
+#include <QTimer>
 #include <QUrl>
 #include <QtConcurrent>
 #include <cstdio>
@@ -191,14 +192,61 @@ QString Previewer::type() const {
     return QMimeDatabase().mimeTypeForName(m_readType.isEmpty() ? m_entries.at(m_index).mime : m_readType).comment();
 }
 
-void Previewer::next() {
-    if (m_index + 1 < m_entries.size())
-        setIndex(m_index + 1, true);
+void Previewer::next() { move(Move::Next); }
+void Previewer::previous() { move(Move::Previous); }
+void Previewer::stepRow(int direction) { move(direction < 0 ? Move::Up : Move::Down); }
+
+void Previewer::move(Move move) {
+    // Folio answers within milliseconds, sooner than a key repeats.
+    if (m_awaitingStep)
+        return;
+    // On its own, the preview has no rows: ↑ and ↓ go to the previous and
+    // next file.
+    if (!m_reporting && (move == Move::Up || move == Move::Down))
+        move = move == Move::Up ? Move::Previous : Move::Next;
+    switch (move) {
+    case Move::Previous:
+        if (m_index > 0)
+            setIndex(m_index - 1, true);
+        break;
+    case Move::Next:
+        if (m_index + 1 < m_entries.size())
+            setIndex(m_index + 1, true);
+        break;
+    case Move::Up:
+    case Move::Down: {
+        m_awaitingStep = true;
+        // A reply that never comes (a Folio too old to send it, or stuck)
+        // stills the arrows for a second, not for good.
+        const quint64 step = ++m_step;
+        QTimer::singleShot(1000, this, [this, step] {
+            if (step == m_step)
+                stepped();
+        });
+        report(move == Move::Up ? "step -1" : "step 1");
+        break;
+    }
+    }
 }
 
-void Previewer::previous() {
-    if (m_index > 0)
-        setIndex(m_index - 1, true);
+void Previewer::stepped() {
+    m_awaitingStep = false;
+    ++m_step;
+}
+
+void Previewer::receive(const QString &line) {
+    if (line == "stepped")
+        stepped();
+    else if (!line.isEmpty())
+        show(line);
+}
+
+void Previewer::report(const QString &line) {
+    emit reported(line);
+    if (m_overStdio) {
+        std::fprintf(stdout, "%s\n", line.toUtf8().constData());
+        std::fflush(stdout);
+    }
 }
 
 void Previewer::open() {
@@ -218,6 +266,7 @@ void Previewer::setIndex(int index, bool report) {
     m_viewer = viewerFor(e.mime, e.isDir);
     m_text.clear();
     m_readType.clear();
+    m_readingText = false;
 
     // A folder's count and first pictures, and a text's opening part, are
     // read off the UI thread: a big folder, or any file on a slow mount,
@@ -228,6 +277,8 @@ void Previewer::setIndex(int index, bool report) {
     // A file its extension could not name is named by what it holds, read with the rest and kept apart from the listing.
     const bool unnamed = e.mime == "application/octet-stream";
     if (count || text || unnamed) {
+        // A file its name gave no type may turn out to be a long text.
+        m_readingText = text || unnamed;
         auto *watcher = new QFutureWatcher<QPair<FolderModel::Entry, QString>>(this);
         connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation, unnamed] {
             watcher->deleteLater();
@@ -240,6 +291,7 @@ void Previewer::setIndex(int index, bool report) {
                 m_entries[m_index] = entry;
             m_text = read;
             m_viewer = viewerFor(entry.mime, entry.isDir);
+            m_readingText = false;
             // A ".txt" that turns out to be binary is shown as a plain file.
             if ((m_viewer == "text" || m_viewer == "markdown") && m_text.isEmpty() && entry.size > 0)
                 m_viewer = "other";
@@ -261,14 +313,15 @@ void Previewer::setIndex(int index, bool report) {
     emit changed();
     emit listed();
 
-    if (report && m_reporting) {
-        std::fprintf(stdout, "%s\n", e.path.toUtf8().constData());
-        std::fflush(stdout);
-    }
+    if (report && m_reporting)
+        this->report(e.path);
 }
 
-void Previewer::connectToFolio() {
+void Previewer::connectToFolio(bool overStdio) {
     m_reporting = true;
+    m_overStdio = overStdio;
+    if (!overStdio)
+        return;
     m_stdin = new QSocketNotifier(STDIN_FILENO, QSocketNotifier::Read, this);
     connect(m_stdin, &QSocketNotifier::activated, this, [this] {
         char buffer[4096];
@@ -281,10 +334,9 @@ void Previewer::connectToFolio() {
         m_pending.append(buffer, n);
         int newline;
         while ((newline = m_pending.indexOf('\n')) >= 0) {
-            const QString path = QString::fromUtf8(m_pending.left(newline));
+            const QString line = QString::fromUtf8(m_pending.left(newline));
             m_pending.remove(0, newline + 1);
-            if (!path.isEmpty())
-                show(path);
+            receive(line);
         }
     });
 }

@@ -7357,6 +7357,14 @@ private slots:
         QTRY_COMPARE_WITH_TIMEOUT(cursor(), home.filePath("files/alpha/z.txt"), 3000);
         QCOMPARE(folder->get(folder->indexOfPath(home.filePath("files/alpha/z.txt"))).value("selected").toBool(), true);
         QCOMPARE(folder->selectedCount(), 1);
+
+        // The preview stepping to a file in the opened folder moves the
+        // cursor to its row, so ↑ and ↓ step from there; one outside the
+        // folder shown leaves it be.
+        backend.previewSaid(home.filePath("files/alpha/b.txt"));
+        QTRY_COMPARE(cursor(), home.filePath("files/alpha/b.txt"));
+        backend.previewSaid(home.filePath("elsewhere/x.txt"));
+        QCOMPARE(cursor(), home.filePath("files/alpha/b.txt"));
     }
 
     // Right-click selects the item under the pointer in a scrolled view too,
@@ -7637,6 +7645,149 @@ private slots:
         };
         QTRY_COMPARE(buffers().size(), pane == "FolderColumns" ? 3 : 1);
         QCOMPARE(buffers(), QVariantList(buffers().size(), 0));
+    }
+
+    void previewerStepsByRowOnItsOwn()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("a.png"), "a");
+        write(dir.filePath("b.png"), "b");
+        write(dir.filePath("c.png"), "c");
+
+        // Without a Folio window to ask for the row above or below, ↑ and ↓
+        // fall back to the previous and next file.
+        Previewer previewer;
+        previewer.start(dir.filePath("b.png"), false, "name");
+        QTRY_COMPARE(previewer.count(), 3);
+        QCOMPARE(previewer.index(), 1);
+        previewer.stepRow(1);
+        QCOMPARE(previewer.index(), 2);
+        previewer.stepRow(1);
+        QCOMPARE(previewer.index(), 2);
+        previewer.stepRow(-1);
+        previewer.stepRow(-1);
+        QCOMPARE(previewer.index(), 0);
+    }
+
+    void previewerLetsArrowsGoUntilFolioHasStepped()
+    {
+        QTemporaryDir dir;
+        for (const char *name : {"a.png", "b.png", "c.png", "d.png"})
+            write(dir.filePath(name), "x");
+
+        Previewer previewer;
+        previewer.connectToFolio(false);
+        QSignalSpy reported(&previewer, &Previewer::reported);
+        previewer.start(dir.filePath("a.png"), false, "name");
+        QTRY_COMPARE(previewer.count(), 4);
+
+        // ↓ then → and ↓ before Folio answers: they're let go, rather than
+        // taken from a.png (undoing the move) or replayed past c.png before
+        // it's been looked at.
+        previewer.stepRow(1);
+        previewer.next();
+        previewer.stepRow(1);
+        QCOMPARE(reported.count(), 1);
+        QCOMPARE(reported.at(0).at(0).toString(), QString("step 1"));
+        previewer.receive(dir.filePath("c.png"));
+        previewer.receive("stepped");
+        QCOMPARE(previewer.index(), 2);
+        QCOMPARE(reported.count(), 1);
+        // Once it has, the arrows are taken from where Folio moved to.
+        previewer.next();
+        QCOMPARE(previewer.index(), 3);
+        QCOMPARE(reported.count(), 2);
+        QCOMPARE(reported.at(1).at(0).toString(), QFileInfo(dir.filePath("d.png")).absoluteFilePath());
+
+        // At the last row Folio doesn't move, and only says it has stepped.
+        previewer.stepRow(1);
+        previewer.receive("stepped");
+        QCOMPARE(previewer.index(), 3);
+        previewer.previous();
+        QCOMPARE(previewer.index(), 2);
+
+        // A reply that never comes stills the arrows for a moment only.
+        previewer.stepRow(-1);
+        previewer.previous();
+        QCOMPARE(previewer.index(), 2);
+        QTest::qWait(1100);
+        previewer.previous();
+        QCOMPARE(previewer.index(), 1);
+    }
+
+    void previewerSaysWhileItReadsText()
+    {
+        QTemporaryDir dir;
+        write(dir.filePath("long.txt"), QByteArray(4096, 'x'));
+        write(dir.filePath("b.png"), "b");
+
+        Previewer previewer;
+        previewer.start(dir.filePath("long.txt"), false, "name");
+        QVERIFY(previewer.readingText());
+        QTRY_VERIFY(!previewer.readingText());
+        QCOMPARE(previewer.text().size(), 4096);
+        previewer.show(dir.filePath("b.png"));
+        QVERIFY(!previewer.readingText());
+
+        // A file its name gives no type might be a long text too, until
+        // what it holds has been read.
+        write(dir.filePath("NOTES"), QByteArray(4096, 'x'));
+        previewer.show(dir.filePath("NOTES"));
+        QVERIFY(previewer.readingText());
+        QTRY_VERIFY(!previewer.readingText());
+        QCOMPARE(previewer.viewer(), QString("text"));
+    }
+
+    void previewStepsPastAOnePagePdf()
+    {
+        QTemporaryDir dir;
+        for (const char *name : {"one.pdf", "two.pdf"}) {
+            QPdfWriter pdf(dir.filePath(name));
+            QPainter painter(&pdf);
+            if (QByteArray(name) == "two.pdf")
+                pdf.newPage();
+        }
+        write(dir.filePath("z.png"), "z");
+
+        Previewer previewer;
+        previewer.connectToFolio(false);
+        QSignalSpy reported(&previewer, &Previewer::reported);
+        previewer.start(dir.filePath("two.pdf"), false, "name");
+        Theme theme(dir.filePath("theme"));
+        Thumbnails thumbnails(dir.filePath("cache"), {dir.filePath("none")});
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("translator", QVariantMap{{"language", "en"}});
+        engine.rootContext()->setContextProperty("previewer", &previewer);
+        engine.addImageProvider("thumb", new ThumbnailProvider(&thumbnails));
+        QQmlComponent pdf(&engine);
+        pdf.setData("import QtQuick.Pdf\nPdfDocument {}\n", QUrl());
+        if (pdf.isError())
+            QSKIP("Qt PDF isn't installed");
+        QQmlComponent component(&engine, QUrl("qrc:/PreviewWindow.qml"));
+        std::unique_ptr<QObject> window(component.create());
+        QVERIFY2(window, qPrintable(component.errorString()));
+        const auto pages = [&]() -> int {
+            auto *view = window->property("view").value<QObject *>();
+            for (QObject *child : view ? view->children() : QObjectList())
+                if (child->property("pageCount").isValid())
+                    return child->property("pageCount").toInt();
+            return -1;
+        };
+        const auto steps = [&] {
+            int n = 0;
+            for (const QList<QVariant> &line : reported)
+                n += line.at(0).toString().startsWith("step ");
+            return n;
+        };
+        // Pages to turn take ↑ and ↓; a single page lets them move on.
+        QTRY_COMPARE(pages(), 2);
+        QMetaObject::invokeMethod(window.get(), "upDown", Q_ARG(QVariant, 1));
+        QCOMPARE(steps(), 0);
+        previewer.show(dir.filePath("one.pdf"));
+        QTRY_COMPARE(pages(), 1);
+        QMetaObject::invokeMethod(window.get(), "upDown", Q_ARG(QVariant, 1));
+        QCOMPARE(steps(), 1);
     }
 
     void themeFallsBack()
