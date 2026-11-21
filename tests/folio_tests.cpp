@@ -1574,6 +1574,66 @@ private slots:
         QCOMPARE(FileOps::foldHandlerRepeats({other, writer, twin}), QVariantList({other, writer, twin}));
     }
 
+    void fileOpsMakesFilesExecutable()
+    {
+        // Run is allowed for whoever may read, and taken away from
+        // everyone. Only for one's own files: not folders, whose x means
+        // something else, nor links.
+        QTemporaryDir dir;
+        const QString script = dir.filePath("run.sh"), secret = dir.filePath("secret.sh"),
+                      link = dir.filePath("link"), folder = dir.filePath("folder");
+        write(script, "#!/bin/sh\n");
+        write(secret, "#!/bin/sh\n");
+        QCOMPARE(::chmod(QFile::encodeName(script).constData(), 0644), 0);
+        QCOMPARE(::chmod(QFile::encodeName(secret).constData(), 0600), 0);
+        QVERIFY(QFile::link(script, link));
+        QVERIFY(QDir().mkdir(folder));
+        const auto mode = [](const QString &path) {
+            struct stat st;
+            return ::stat(QFile::encodeName(path).constData(), &st) == 0 ? st.st_mode & 07777 : 0u;
+        };
+        FileOps ops;
+        QVERIFY(ops.canSetExecutable({script, secret}));
+        QVERIFY(!ops.canSetExecutable({script, folder}));
+        QVERIFY(!ops.canSetExecutable({link}));
+        QVERIFY(!ops.canSetExecutable({}));
+        if (::geteuid() != 0)
+            QVERIFY(!ops.canSetExecutable({"/etc/hostname"}));
+        QVERIFY(!ops.executable({script, secret}));
+
+        // The details pane reads the item again on hearing which changed.
+        QSignalSpy changed(&ops, &FileOps::modesChanged);
+        ops.setExecutable({script, secret, folder}, true);
+        QCOMPARE(changed.count(), 1);
+        QCOMPARE(changed.at(0).at(0).toStringList(), QStringList({script, secret}));
+        QCOMPARE(mode(script), 0755u);
+        QCOMPARE(mode(secret), 0700u);
+        QVERIFY(ops.executable({script, secret}));
+        QCOMPARE(::chmod(QFile::encodeName(secret).constData(), 0600), 0);
+        QVERIFY(!ops.executable({script, secret}));
+
+        ops.setExecutable({script, secret}, false);
+        QCOMPARE(mode(script), 0644u);
+        QCOMPARE(mode(secret), 0600u);
+
+        // A file gone since the menu opened says so; the folder beside it
+        // is still left alone without a word.
+        QSignalSpy failed(&ops, &FileOps::failed);
+        ops.setExecutable({dir.filePath("gone.sh"), folder}, true);
+        QCOMPARE(failed.count(), 1);
+        QVERIFY(failed.at(0).at(0).toString().contains("gone.sh"));
+
+        // Not while other work is under way: a copy still being written
+        // would put its source's mode back once it's done.
+        ops.trash({dir.filePath("gone.txt")});
+        QVERIFY(!ops.busy().isEmpty());
+        ops.setExecutable({script}, true);
+        QCOMPARE(failed.count(), 2);
+        QCOMPARE(failed.last().first().toString(), QString("Try again once the work under way is done."));
+        QCOMPARE(mode(script), 0644u);
+        QTRY_VERIFY(ops.busy().isEmpty());
+    }
+
     void fileOpsDeleteForeverOutsideTheTrash()
     {
         // Shift+Delete deletes for good anywhere: the folder and what's in
@@ -4557,6 +4617,23 @@ private slots:
         QVERIFY2(!said().contains(pdfName) && !said().contains("Reader"), qPrintable(said()));
     }
 
+    void backendShowsWhoMayReadWriteAndRun()
+    {
+        // Any file or folder's permissions, as ls writes them, read with
+        // the rest of the details.
+        QTemporaryDir dir;
+        const QString report = dir.filePath("report.pdf"), tools = dir.filePath("tools");
+        write(report, "x");
+        QVERIFY(QDir().mkdir(tools));
+        QCOMPARE(::chmod(QFile::encodeName(report).constData(), 0640), 0);
+        QCOMPARE(::chmod(QFile::encodeName(tools).constData(), 01755), 0);
+        Backend backend(dir.path());
+        backend.describe({{"path", report}, {"kind", "pdf"}, {"mime", "application/pdf"}});
+        QTRY_COMPARE(backend.details().value("permissions").toString(), QString("rw-r-----"));
+        backend.describe({{"path", tools}, {"kind", "folder"}, {"mime", "inode/directory"}});
+        QTRY_COMPARE(backend.details().value("permissions").toString(), QString("rwxr-xr-t"));
+    }
+
     void backendReadsTrashNotesOffTheUiThread()
     {
         // Finding a trashed item's note looks over every mounted drive, so
@@ -5478,11 +5555,12 @@ private slots:
             const qsizetype from = all.indexOf("Compress"), to = all.indexOf("Share");
             return from < 0 || to < from ? all : all.mid(from + 1, to - from - 1);
         };
-        // Plain entries, then submenus, together after Compress and before
-        // Share, and in that order again however often the menu opens.
-        QCOMPARE(around("notes.txt", "text/plain"), QStringList({"Copy Git Link", "Copy To"}));
-        QCOMPARE(around("photo.png", "image/png"), QStringList({"Copy To"}));
-        QCOMPARE(around("notes.txt", "text/plain"), QStringList({"Copy Git Link", "Copy To"}));
+        // Make Executable (they're our own files), then plain entries, then
+        // submenus, together after Compress and before Share, and in that
+        // order again however often the menu opens.
+        QCOMPARE(around("notes.txt", "text/plain"), QStringList({"Make Executable", "Copy Git Link", "Copy To"}));
+        QCOMPARE(around("photo.png", "image/png"), QStringList({"Make Executable", "Copy To"}));
+        QCOMPARE(around("notes.txt", "text/plain"), QStringList({"Make Executable", "Copy Git Link", "Copy To"}));
     }
 
     void pluginDetailsAreAskedForOnceAndKept()

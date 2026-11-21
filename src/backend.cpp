@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QThreadPool>
 #include <QGuiApplication>
 #include <QImageReader>
 #include <QMimeDatabase>
@@ -16,6 +17,7 @@
 #include <QStorageInfo>
 #include <QUrl>
 #include <QtConcurrent>
+#include <sys/stat.h>
 #include <unistd.h>
 
 Backend::Backend(const QString &home, QObject *parent)
@@ -474,6 +476,18 @@ QString Backend::takeSelection() {
     return name;
 }
 
+// As ls writes them: read, write and run for the owner, the group and
+// everyone, with the setuid, setgid and sticky bits in the run places.
+static QString permissionsText(mode_t mode) {
+    const auto run = [mode](mode_t x, mode_t special, char set, char setOnly) {
+        return mode & special ? (mode & x ? set : setOnly) : (mode & x ? 'x' : '-');
+    };
+    const char text[] = {mode & S_IRUSR ? 'r' : '-', mode & S_IWUSR ? 'w' : '-', run(S_IXUSR, S_ISUID, 's', 'S'),
+                         mode & S_IRGRP ? 'r' : '-', mode & S_IWGRP ? 'w' : '-', run(S_IXGRP, S_ISGID, 's', 'S'),
+                         mode & S_IROTH ? 'r' : '-', mode & S_IWOTH ? 'w' : '-', run(S_IXOTH, S_ISVTX, 't', 'T'), 0};
+    return QString::fromLatin1(text);
+}
+
 void Backend::describe(const QVariantMap &item, bool inTrash) {
     const QString path = item.value("path").toString();
     const QString kind = item.value("kind").toString();
@@ -510,13 +524,25 @@ void Backend::describe(const QVariantMap &item, bool inTrash) {
     });
     // Stepping through files faster than they're read queues readings; the
     // ones overtaken before they start are skipped rather than left to tie
-    // up the global pool's threads. A file its extension could not name has
-    // its type read from what it holds.
+    // up the threads the next folder is listed on.
+    // Every local item is read now (its permissions at least), so the
+    // readings get a few threads of their own: moving across folders on a
+    // mount that stopped answering leaves reads stuck, and in the shared
+    // pool they'd keep any folder from being listed. Never torn down, so a
+    // stuck one can't keep Folio from quitting either. A file its extension
+    // could not name has its type read from what it holds.
+    static QThreadPool *const reading = [] {
+        auto *pool = new QThreadPool;
+        pool->setMaxThreadCount(4);
+        return pool;
+    }();
     const bool unnamed = mime == "application/octet-stream";
-    watcher->setFuture(QtConcurrent::run([path, kind, mime, unnamed, inTrash, latest = m_describing, generation] {
+    watcher->setFuture(QtConcurrent::run(reading, [path, kind, mime, unnamed, inTrash, latest = m_describing, generation] {
         QVariantMap read;
         if (*latest != generation)
             return read;
+        if (struct stat st; ::stat(QFile::encodeName(path).constData(), &st) == 0)
+            read.insert("permissions", permissionsText(st.st_mode));
         if (inTrash) {
             read.insert("origin", FileOps::originalPath(path));
             read.insert("deleted", FileOps::deletedAt(path));
