@@ -748,6 +748,73 @@ private slots:
         QCOMPARE(QUrl(url.toString()), picture->url());
     }
 
+    // The list gives the rows it scrolls out to the files it scrolls in.
+    // One that lands under a still pointer is still hovered, so it takes a
+    // new picture for dragging there rather than keep its last file's.
+    void listRowsReusedUnderThePointerRetakeTheirDragPicture()
+    {
+        QTemporaryDir home;
+        for (int i = 0; i < 100; ++i)
+            write(home.filePath(QString("file%1.txt").arg(i, 3, 10, QChar('0'))), "x");
+        Backend backend(home.path());
+        Theme theme(home.filePath("theme"));
+        FileOps fileOps;
+        Translator translator(home.filePath("language"), sourceFolder() + "/i18n");
+        std::unique_ptr<QQmlPropertyMap> plugins(QQmlPropertyMap::create());
+        plugins->insert("views", QVariantMap{});
+        QQmlEngine engine;
+        engine.rootContext()->setContextProperty("backend", &backend);
+        engine.rootContext()->setContextProperty("theme", &theme);
+        engine.rootContext()->setContextProperty("fileOps", &fileOps);
+        engine.rootContext()->setContextProperty("translator", &translator);
+        engine.rootContext()->setContextProperty("plugins", plugins.get());
+        backend.navigate(home.path());
+        QTRY_COMPARE(backend.folder()->count(), 100);
+        QQmlComponent component(&engine);
+        component.setData(R"(
+            import QtQuick
+            Window {
+                width: 640; height: 320; visible: true
+                FolderList { id: list; objectName: "list"; anchors.fill: parent }
+                function pictureUrl(index) { return String(list.itemAtIndex(index).Drag.imageSource) }
+            }
+        )", QUrl::fromLocalFile(sourceFolder() + "/ReusedRowTest.qml"));
+        std::unique_ptr<QObject> root(component.create());
+        QVERIFY2(root, qPrintable(component.errorString()));
+        auto *window = qobject_cast<QQuickWindow *>(root.get());
+        QVERIFY(QTest::qWaitForWindowExposed(window));
+        auto *list = root->findChild<QQuickItem *>("list");
+        QVERIFY(list);
+        const auto row = [&](int index) {
+            QQuickItem *item = nullptr;
+            QMetaObject::invokeMethod(list, "itemAtIndex", Q_RETURN_ARG(QQuickItem *, item), Q_ARG(int, index));
+            return item;
+        };
+        const auto picture = [&](int index) {
+            QVariant url;
+            QMetaObject::invokeMethod(root.get(), "pictureUrl", Q_RETURN_ARG(QVariant, url), Q_ARG(QVariant, index));
+            return url.toString();
+        };
+        QTRY_VERIFY(row(2));
+        QTest::mouseMove(window, QPoint(600, 300));
+        QTest::mouseMove(window, row(2)->mapToScene(QPointF(100, 16)).toPoint());
+        QTRY_VERIFY(!picture(2).isEmpty());
+        const QString before = picture(2);
+
+        // Pages on, between two frames, another file is where file 2 was,
+        // in the row file 2 had.
+        QPointer<QQuickItem> reused = row(2);
+        QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, 50), Q_ARG(int, 1));
+        QMetaObject::invokeMethod(list, "forceLayout");
+        QVERIFY(reused && reused->isVisible());
+        const int index = reused->property("index").toInt();
+        QVERIFY(index > 2);
+        QMetaObject::invokeMethod(list, "positionViewAtIndex", Q_ARG(int, index - 2), Q_ARG(int, 1));
+        QMetaObject::invokeMethod(list, "forceLayout");
+        QCOMPARE(row(index), reused.data());
+        QTRY_VERIFY(!picture(index).isEmpty() && picture(index) != before);
+    }
+
     void foldersRememberTheirOrderAndPassItDown()
     {
         QTemporaryDir home;

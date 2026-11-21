@@ -72,6 +72,9 @@ FileListView {
         onTapped: (point) => list.contextMenu(selecting.menuAt(point), backend.path, point.scenePosition)
     }
 
+    // Rows scrolled out are given to the files scrolled in rather than made
+    // anew: scrolling a long list costs a fraction of what it did.
+    reuseItems: true
     focus: true
     keyNavigationEnabled: true
     // No cursor of its own to start with: the pane puts it back where the

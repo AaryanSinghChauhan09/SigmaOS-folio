@@ -198,6 +198,13 @@ Item {
         id: hover
         onHoveredChanged: if (hovered) dragPicture.capture(row)
     }
+    // Given another file by the list, a row still under the pointer stays
+    // hovered: its picture is retaken, not kept from the file before.
+    ListView.onReused: {
+        row.Drag.imageSource = ""
+        if (hover.hovered)
+            dragPicture.capture(row)
+    }
     TapHandler {
         id: tap
         onTapped: row.clicked(tap.point.modifiers)
