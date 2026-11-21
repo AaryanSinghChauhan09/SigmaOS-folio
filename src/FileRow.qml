@@ -34,12 +34,16 @@ Item {
     // In the list, a tree: each level indented, and a folder's arrow opens
     // it in place (or closes it).
     property bool tree: false
+    // The list's size step: the row's height and picture grow with it, the
+    // name and details don't, as with the grid's tiles.
+    property real zoom: 1
+    readonly property int picture: Math.round(20 * zoom)
 
     signal clicked(int modifiers)
     signal activated()
     signal toggled()
 
-    implicitHeight: 32
+    implicitHeight: Math.round(32 * zoom)
 
     // The name always gets room: in a narrow window the date goes first,
     // then the size. (The icon says what kind a file is; there's no column
@@ -80,7 +84,9 @@ Item {
 
     RowLayout {
         anchors.fill: parent
-        anchors.leftMargin: row.tree ? 4 + row.depth * 20 : 14
+        // Each level is indented by half a picture and 10, which keeps an
+        // open folder's arrows under its picture at any size.
+        anchors.leftMargin: row.tree ? 4 + row.depth * (Math.round(row.picture / 2) + 10) : 14
         anchors.rightMargin: 14
         spacing: 12
 
@@ -109,8 +115,8 @@ Item {
         }
 
         Item {
-            implicitWidth: 20
-            implicitHeight: 20
+            implicitWidth: row.picture
+            implicitHeight: row.picture
             Image {
                 id: thumb
                 anchors.fill: parent
@@ -132,8 +138,7 @@ Item {
             }
             Rectangle {
                 id: rowMask
-                width: 20
-                height: 20
+                anchors.fill: parent
                 radius: Math.min(4, theme.radius)
                 visible: false
                 layer.enabled: true
@@ -142,7 +147,7 @@ Item {
                 anchors.centerIn: parent
                 visible: !thumb.visible
                 name: row.glyph
-                size: 16
+                size: Math.round(16 * row.zoom)
                 color: row.isDir && !row.cut ? theme.accent : theme.secondaryForeground
             }
         }

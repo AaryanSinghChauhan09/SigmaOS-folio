@@ -481,9 +481,31 @@ FocusScope {
                 folder: backend.path
                 items: view.item
             }
+
+            // Ctrl+scroll over the grid or the list steps its size, as Ctrl+=
+            // and Ctrl+- do. It's the view's own, so it's asked before the
+            // view scrolls.
+            WheelHandler {
+                parent: view.item
+                enabled: pane.viewMode !== "columns"
+                acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
+                acceptedModifiers: Qt.ControlModifier
+                // A touchpad sends many small deltas: a step per notch's worth
+                // (120), and nothing for an event that doesn't move up or down.
+                property real pending: 0
+                onWheel: (event) => {
+                    // Every whole notch is a step; the rest waits for the next event.
+                    pending += event.angleDelta.y
+                    while (Math.abs(pending) >= 120) {
+                        const step = pending > 0 ? 1 : -1
+                        pane.zoomBy(step)
+                        pending -= step * 120
+                    }
+                }
+            }
         }
-        Component { id: gridView; FolderGrid { zoom: pane.zoom; onZoomRequested: (step) => pane.zoomBy(step) } }
-        Component { id: listView; FolderList { } }
+        Component { id: gridView; FolderGrid { zoom: pane.zoom } }
+        Component { id: listView; FolderList { zoom: pane.zoom } }
         Component { id: columnsView; FolderColumns { detailsPane: pane } }
     }
 
