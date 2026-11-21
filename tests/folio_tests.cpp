@@ -4508,6 +4508,24 @@ private slots:
         QVERIFY(QFile::exists(":/omarchy.svg"));
     }
 
+    void placesTellOnlyWhatChanged()
+    {
+        // The poll finds the same folders most times: the sidebar isn't
+        // told, so it doesn't make its rows again.
+        QTemporaryDir home;
+        QDir(home.path()).mkpath("Work");
+        Places places(home.path());
+        // Checked before the event loop runs again: the drives, read in
+        // the background, are told when they change, and their free space
+        // may have.
+        QSignalSpy changed(&places, &Places::changed);
+        places.refresh();
+        QCOMPARE(changed.count(), 0);
+        QDir(home.path()).mkpath("Music");
+        places.refresh();
+        QCOMPARE(changed.count(), 1);
+    }
+
     void placesPinFoldersAsGtkBookmarks()
     {
         QTemporaryDir home;
