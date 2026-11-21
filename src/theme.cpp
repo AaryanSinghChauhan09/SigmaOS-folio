@@ -254,6 +254,12 @@ QColor Theme::tooltipForeground() const {
     return ensureRatio(foreground(), tooltipBackground(), textFloor);
 }
 
+// A folder card's fill: the lighter background, raised to surfaceFloor so the
+// card stands off the pane on themes where the two nearly match (#24).
+QColor Theme::folderFill() const {
+    return ensureRatio(lighterBackground(), background(), surfaceFloor);
+}
+
 void Theme::reload() {
     refreshRounding();
     const auto paths = m_watcher.files() + m_watcher.directories();

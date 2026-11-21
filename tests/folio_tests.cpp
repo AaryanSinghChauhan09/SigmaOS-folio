@@ -8561,6 +8561,27 @@ private slots:
         QVERIFY(contrast(plain.tooltipForeground(), plain.tooltipBackground()) >= 4.5);
     }
 
+    // A folder card sits on the pane; when a theme's lighter background nearly
+    // matches the background the card nearly vanishes (#24). The fill keeps a
+    // floor without touching the palette the rest of Folio draws with.
+    void themeFloorsTheFolderCard()
+    {
+        QTemporaryDir dir;
+        QDir(dir.path()).mkpath("theme");
+        write(dir.filePath("theme/colors.toml"),
+              "background = \"#faf4ed\"\nlighter_background = \"#f2e9e1\"\nforeground = \"#575279\"\n");
+        Theme low(dir.path());
+        QVERIFY(contrast(low.folderFill(), low.background()) >= 1.4);
+        QVERIFY(low.folderFill() != low.lighterBackground());
+        // The palette itself is untouched: tiles and panels keep its color.
+        QCOMPARE(low.lighterBackground(), QColor("#f2e9e1"));
+        // A card that already reads keeps the theme's own color.
+        write(dir.filePath("theme/colors.toml"),
+              "mode = \"light\"\nbackground = \"#ffffff\"\nlighter_background = \"#c0c0c0\"\nforeground = \"#000000\"\n");
+        Theme passing(dir.path());
+        QCOMPARE(passing.folderFill(), QColor("#c0c0c0"));
+    }
+
     // Folio's font is the system's fixed-width one, Omarchy's pick, followed
     // live: omarchy-font-set rewrites fontconfig's monospace in
     // ~/.config/fontconfig/fonts.conf, and the window takes it without a

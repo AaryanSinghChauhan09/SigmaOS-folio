@@ -185,9 +185,9 @@ Item {
             height: 92
             preferredRendererType: Shape.CurveRenderer
             ShapePath {
-                fillColor: tile.current || folderDrop.containsDrag ? Qt.tint(theme.lighterBackground, Qt.alpha(theme.accent, 0.3))
-                    : hover.hovered ? Qt.tint(theme.lighterBackground, Qt.alpha(theme.foreground, 0.06))
-                    : theme.lighterBackground
+                fillColor: tile.current || folderDrop.containsDrag ? Qt.tint(theme.folderFill, Qt.alpha(theme.accent, 0.3))
+                    : hover.hovered ? Qt.tint(theme.folderFill, Qt.alpha(theme.foreground, 0.06))
+                    : theme.folderFill
                 strokeColor: tile.current || folderDrop.containsDrag ? theme.accent : "transparent"
                 strokeWidth: folderDrop.containsDrag ? 2.5 : 1.5
                 joinStyle: tile.iconRadius > 0 ? ShapePath.RoundJoin : ShapePath.MiterJoin
