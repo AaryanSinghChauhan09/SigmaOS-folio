@@ -196,7 +196,8 @@ FolioMenu {
         keys: "Ctrl+Shift+N"
         onTriggered: fileOps.newFolder(fileMenu.folder)
     }
-    MenuLine { shown: fileMenu.forFiles }
+    // In the trash nothing an item gets below shows, so no line opens it.
+    MenuLine { shown: fileMenu.forFiles && !(fileMenu.forItem && fileMenu.trashView) }
     // Archives are extracted, not compressed again.
     readonly property bool archives: !trashView && forItem && forFiles && fileOps.canExtract(paths)
     FolioMenuItem {
@@ -315,8 +316,8 @@ FolioMenu {
     }
     // On empty space, only where the folder shown is one to work in.
     FolioMenuItem {
-        shown: fileMenu.forItem ? fileMenu.forFolder && fileMenu.forFiles
-                                : fileMenu.folder.startsWith("/") && !fileMenu.trashView
+        shown: !fileMenu.trashView && (fileMenu.forItem ? fileMenu.forFolder && fileMenu.forFiles
+                                                       : fileMenu.folder.startsWith("/"))
         text: qsTr("Open Terminal Here")
         onTriggered: fileOps.openTerminal(fileMenu.forItem ? fileMenu.target.path : fileMenu.folder)
     }
