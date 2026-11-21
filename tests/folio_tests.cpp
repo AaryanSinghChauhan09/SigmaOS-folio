@@ -6711,6 +6711,26 @@ private slots:
         QVERIFY(QFile::exists(dir.filePath("cache/fail/folio/" + Thumbnails::cacheKey(dir.filePath("clip.mp4")))));
     }
 
+    void thumbnailsHandAThumbnailerANameThatHoldsACode()
+    {
+        QTemporaryDir dir;
+        // The thumbnailer copies its input out and notes the third argument it was given beside itself.
+        const QString script = dir.filePath("copy.sh");
+        write(script, "cp \"$1\" \"$2\" && printf %s \"$3\" > \"$0.said\"\n");
+        write(dir.filePath("demo.thumbnailer"), "[Thumbnailer Entry]\nExec=/bin/sh \"" + script.toUtf8()
+              + "\" %i %o \"--size=%s,%s 100%% %u\"\nMimeType=video/mp4;\n");
+        Thumbnails thumbnails(dir.filePath("cache"), {dir.path()});
+
+        // A name with every code in it is still one file to the thumbnailer, by path and by URI.
+        const QString clip = dir.filePath("50%off %sale %up %in 100%%.mp4");
+        QVERIFY(QImage(10, 20, QImage::Format_RGB32).save(clip, "PNG"));
+        QCOMPARE(thumbnails.load(clip, "video/mp4", 128).size(), QSize(10, 20));
+        QFile said(script + ".said");
+        QVERIFY(said.open(QIODevice::ReadOnly));
+        QCOMPARE(QString::fromUtf8(said.readAll()),
+                 "--size=128,128 100% " + QUrl::fromLocalFile(clip).toString(QUrl::FullyEncoded));
+    }
+
     void thumbnailsRememberOnlyWhatFailed()
     {
         QTemporaryDir dir;
@@ -6740,12 +6760,13 @@ private slots:
         write(dir.filePath("never.broken"), "x");
         QVERIFY(withBroken.load(dir.filePath("never.broken"), "image/x-broken", 128).isNull());
         const QImage marker(dir.filePath("cache/fail/folio/" + Thumbnails::cacheKey(dir.filePath("never.broken"))));
-        QCOMPARE(marker.text("X-Folio::Round"), QString("2"));
-        // An old marker, without its round, for a picture that can be made.
+        QCOMPARE(marker.text("X-Folio::Round"), QString("3"));
+        // A marker from round 2, for a picture that can be made.
         const QFileInfo picture(dir.filePath("frame.png"));
         QImage old(1, 1, QImage::Format_ARGB32);
         old.setText("Thumb::MTime", QString::number(picture.lastModified().toSecsSinceEpoch()));
         old.setText("X-Folio::MTime", QString::number(picture.lastModified().toMSecsSinceEpoch()));
+        old.setText("X-Folio::Round", "2");
         QVERIFY(old.save(dir.filePath("cache/fail/folio/" + Thumbnails::cacheKey(picture.filePath()))));
         QVERIFY(!withBroken.load(picture.filePath(), "image/png", 128).isNull());
     }
