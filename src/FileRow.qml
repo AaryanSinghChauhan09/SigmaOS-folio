@@ -170,10 +170,7 @@ Item {
             Layout.preferredWidth: Math.round(96 * theme.textScale)
             Layout.leftMargin: 12
             horizontalAlignment: Text.AlignLeft
-            text: {
-                translator.language // Re-read when the language (and so the default locale) changes.
-                return Format.when(row.modified)
-            }
+            text: Format.when(row.modified, translator.dateLocale)
             color: theme.secondaryForeground
             size: 12
             elide: Text.ElideRight

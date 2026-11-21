@@ -239,10 +239,7 @@ Rectangle {
                 visible: !!pane.info.created
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
-                text: {
-                    translator.language // Re-read when the language (and so the default locale) changes.
-                    return pane.info.created ? Format.stamp(pane.info.created) : ""
-                }
+                text: pane.info.created ? Format.stamp(pane.info.created, translator.dateLocale) : ""
                 color: theme.foreground
                 size: 12
             }
@@ -252,9 +249,8 @@ Rectangle {
                 Layout.fillWidth: true
                 horizontalAlignment: Text.AlignRight
                 text: {
-                    translator.language // Re-read when the language (and so the default locale) changes.
                     const when = pane.trashed ? pane.info.deleted : pane.noting ? null : pane.item.modified
-                    return pane.hasItem && when ? Format.stamp(when) : ""
+                    return pane.hasItem && when ? Format.stamp(when, translator.dateLocale) : ""
                 }
                 color: theme.foreground
                 size: 12
