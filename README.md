@@ -1,4 +1,6 @@
-# Files
+# SigmaOS folio
+
+> Forked from omacom/folio (MIT). See `SIGMAOS_FORK.md`.
 
 ![Files showing a folder of photos in the grid](docs/grid.png)
 
