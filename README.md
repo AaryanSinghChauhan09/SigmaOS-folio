@@ -64,3 +64,8 @@ Files is C++ and Qt Quick. `bin/build` compiles it into `build/folio`, and `bin/
 ## License
 
 Files is released under the [MIT License](LICENSE).
+## Documentation
+
+Wiki documentation is available in the SigmaOS Wiki Staging repository:
+
+- [SigmaOS Wiki Staging](https://github.com/AaryanSinghChauhan09/sigmaos-wiki-staging#SigmaOS-folio) - Full Wiki documentation for all SigmaOS components
