@@ -59,7 +59,7 @@ o.window("folio-chooser", { tag = "+floating-window" })
 Two things it leaves out. Some apps add their own choices to a dialog (an encoding, say); those aren't shown, and the app keeps its defaults. And the dialog isn't attached to the app's window: it opens as a window of its own, not over the app.
 
 
-Files is C++ and Qt Quick. `bin/build` compiles it into `build/folio`, and `bin/test` runs the tests. SigmaOS installs it from [omarchy-pkgs](https://github.com/AaryanSinghChauhan09/SigmaOS-pkgs).
+Files is C++ and Qt Quick. `bin/build` compiles it into `build/folio`, and `bin/test` runs the tests. SigmaOS installs it from [sigmaos-pkgs](https://github.com/AaryanSinghChauhan09/SigmaOS-pkgs).
 
 ## License
 
