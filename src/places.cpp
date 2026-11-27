@@ -40,14 +40,14 @@ bool listedUnderHome(const QString &path, const QString &home, const QStringList
 }
 
 // Home's folders read capitalized there, as the XDG ones are: go as Go,
-// omarchy as Omarchy.
+// sigmaos as SigmaOS.
 QString homeName(const QString &name) {
     return name.isEmpty() ? name : name.left(1).toUpper() + name.mid(1);
 }
 
 // Omarchy's own folder reads as the name it goes by.
 QString displayName(const QString &name) {
-    return name == "omarchy" ? QStringLiteral("Omarchy") : name;
+    return name == "sigmaos" ? QStringLiteral("SigmaOS") : name;
 }
 
 // Reads bookmark lines ("file:///path Label") into pinned entries, leaving
@@ -165,7 +165,7 @@ QString Places::userDirectory(int location, const QString &fallback) const {
 
 // The sidebar's Home section is every folder in home but the hidden ones,
 // the way they appear in the home folder itself, so whatever someone keeps
-// at the top of their home (Work, omarchy, Dropbox) is one click away
+// at the top of their home (Work, sigmaos, Dropbox) is one click away
 // without pinning it.
 void Places::refreshPlaces() {
     QVariantList places;
@@ -192,7 +192,7 @@ void Places::refreshPlaces() {
             continue;
         const QString path = m_home + "/" + name;
         // Omarchy's own folder shows Omarchy's mark.
-        add(homeName(name), path, icons.value(path, name == "omarchy" ? QStringLiteral(":/omarchy.svg") : QStringLiteral("folder")));
+        add(homeName(name), path, icons.value(path, name == "sigmaos" ? QStringLiteral(":/sigmaos.svg") : QStringLiteral("folder")));
     }
 
     m_places = places;
