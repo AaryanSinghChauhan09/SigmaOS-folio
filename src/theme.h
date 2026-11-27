@@ -75,7 +75,7 @@ public:
     // Follows the system's fixed-width font from now on, as the application's
     // font and through fontFamily and textScale: when the platform theme says
     // it changed (qtengine's font or size), and when fontconfig's own choice
-    // of it does (omarchy-font-set rewrites ~/.config/fontconfig/fonts.conf).
+    // of it does (sigmaos-font-set rewrites ~/.config/fontconfig/fonts.conf).
     void followSystemFont();
     // How much to scale text drawn for Omarchy's default size (11pt) to show
     // it at `points`, kept to what Folio's layout holds.

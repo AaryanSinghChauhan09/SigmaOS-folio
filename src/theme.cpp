@@ -120,7 +120,7 @@ Palette readPalette(const QString &path) {
 
 Theme::Theme(const QString &directory, QObject *parent, const QString &hyprctl, const QString &events)
     : QObject(parent),
-      m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/omarchy/current" : directory) {
+      m_directory(directory.isEmpty() ? QDir::homePath() + "/.local/state/sigmaos/current" : directory) {
     m_fontFamily = QGuiApplication::font().family();
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
@@ -300,7 +300,7 @@ qreal Theme::textScaleFor(qreal points) {
 
 QString Theme::resolveFamily(const QString &family) {
     // Asked of a configuration loaded afresh, rather than of the one Qt read
-    // when Folio started, so a choice made since (omarchy-font-set) counts,
+    // when Folio started, so a choice made since (sigmaos-font-set) counts,
     // and Qt's own is left alone.
     FcConfig *config = FcInitLoadConfigAndFonts();
     if (!config)
@@ -326,7 +326,7 @@ void Theme::followSystemFont() {
     m_fontDebounce.setSingleShot(true);
     m_fontDebounce.setInterval(200);
     connect(&m_fontDebounce, &QTimer::timeout, this, &Theme::readSystemFont);
-    // omarchy-font-set writes the user's fontconfig file; its folder is
+    // sigmaos-font-set writes the user's fontconfig file; its folder is
     // watched too, for when it's made.
     const QString fontconfig = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation) + "/fontconfig";
     QDir().mkpath(fontconfig);

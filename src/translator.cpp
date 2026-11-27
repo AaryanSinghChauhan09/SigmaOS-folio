@@ -103,7 +103,7 @@ QString Translator::pluralCategory(const QString &code, long long count) {
 
 Translator::Translator(const QString &languageFile, const QString &catalogDirectory, QObject *parent)
     : QTranslator(parent),
-      m_languageFile(languageFile.isEmpty() ? QDir::homePath() + "/.config/omarchy/language" : languageFile),
+      m_languageFile(languageFile.isEmpty() ? QDir::homePath() + "/.config/sigmaos/language" : languageFile),
       m_catalogDirectory(catalogDirectory) {
     m_debounce.setSingleShot(true);
     m_debounce.setInterval(80);
@@ -171,7 +171,7 @@ void Translator::reload() {
     if (!paths.isEmpty())
         m_watcher.removePaths(paths);
 
-    // omarchy-language replaces the file, which drops it from the watch, and a
+    // sigmaos-language replaces the file, which drops it from the watch, and a
     // first pick creates it; watch its directory too and re-arm every time.
     const QString directory = QFileInfo(m_languageFile).absolutePath();
     if (QFileInfo::exists(directory))

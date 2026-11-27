@@ -238,10 +238,10 @@ public:
     // already knows, so a slow drive is never read for it.
     Q_INVOKABLE static QString defaultAppName(const QString &mime);
     // The editor Omarchy opens text files in (the command, such as code),
-    // read as omarchy-launch-editor reads it.
-    static QString omarchyEditor();
+    // read as sigmaos-launch-editor reads it.
+    static QString sigmaosEditor();
     // Among visible apps ({executable, name}), the name of the one that runs
-    // omarchyEditor(), or empty.
+    // sigmaosEditor(), or empty.
     static QString editorAppName(const QVariantList &apps);
     // An Opens with list without the entries named like the editor handler,
     // when that's its default and first entry.

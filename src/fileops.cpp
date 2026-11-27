@@ -2052,8 +2052,8 @@ static QString mimeFor(const QString &path) {
     return QFileInfo(path).isDir() ? QStringLiteral("inode/directory") : QMimeDatabase().mimeTypeForFile(path).name();
 }
 
-QString FileOps::omarchyEditor() {
-    QFile setting(QDir::homePath() + "/.local/state/omarchy/defaults/editor");
+QString FileOps::sigmaosEditor() {
+    QFile setting(QDir::homePath() + "/.local/state/sigmaos/defaults/editor");
     QString editor = setting.open(QIODevice::ReadOnly) ? QString::fromUtf8(setting.readLine()).trimmed() : QString();
     // sublime-text-4 ships subl; older settings say sublime_text.
     if (editor == "sublime_text")
@@ -2064,7 +2064,7 @@ QString FileOps::omarchyEditor() {
 }
 
 QString FileOps::editorAppName(const QVariantList &apps) {
-    const QString editor = omarchyEditor();
+    const QString editor = sigmaosEditor();
     for (const QVariant &app : apps)
         if (QFileInfo(app.toMap().value("executable").toString()).fileName() == editor)
             return app.toMap().value("name").toString();
@@ -2072,7 +2072,7 @@ QString FileOps::editorAppName(const QVariantList &apps) {
 }
 
 QVariantList FileOps::foldHandlerRepeats(QVariantList apps) {
-    if (apps.isEmpty() || apps.first().toMap().value("id") != "omarchy-launch-editor.desktop"
+    if (apps.isEmpty() || apps.first().toMap().value("id") != "sigmaos-launch-editor.desktop"
         || !apps.first().toMap().value("isDefault").toBool())
         return apps;
     const QString name = apps.first().toMap().value("name").toString();
@@ -2088,7 +2088,7 @@ QVariantList FileOps::foldHandlerRepeats(QVariantList apps) {
 // than its own "Editor".
 static QString appName(GAppInfo *app) {
     const QString own = QString::fromUtf8(g_app_info_get_name(app));
-    if (qstrcmp(g_app_info_get_id(app), "omarchy-launch-editor.desktop") != 0)
+    if (qstrcmp(g_app_info_get_id(app), "sigmaos-launch-editor.desktop") != 0)
         return own;
     QVariantList visible;
     GList *all = g_app_info_get_all();
